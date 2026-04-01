@@ -4,120 +4,92 @@
 #include <map>
 #include <vector>
 #include <iostream>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
 
 #include "myGenerator.h"
 
 using namespace std;
 
-std::map<char, bool> pstable = {
-    { 'A', false },
-    { 'B', false },
-    { 'C', false },
-    { 'D', false },
-    { 'E', false },
-    { 'W', false },
-    { 'w', false },
-    { 'Z', false },
-    { 'z', false },
-    { 'h', false },
-    { 'T', false },
-    { 't', false },
-    { 'b', true },
-    { 'q', true },
-    { 'l', true },
-    { 'v', true },
-    { 'N', true }
+struct ProcessConfig {
+  std::map<char, bool> pstable;
+  std::map<char, bool> pvisible;
+  std::map<char, std::pair<char,char>> pdecay;
+  std::map<char, double> pmass;
+  std::map<char, int> pid;
+  int nevents = 1000000;
+  std::string outfile = "test.root";
+  char productionA = 'A';
+  char productionB = 'B';
 };
 
-std::map<char, bool> pvisible = {
-    { 'A', false },
-    { 'B', false },
-    { 'C', false },
-    { 'D', false },
-    { 'E', false },
-    { 'W', false },
-    { 'w', false },
-    { 'Z', false },
-    { 'z', false },
-    { 'h', false },
-    { 'T', false },
-    { 't', false },
-    { 'b', true },
-    { 'q', true },
-    { 'l', true },
-    { 'v', false },
-    { 'N', false }
-};
+ProcessConfig loadProcessCard(const std::string &cardFile){
+  ProcessConfig cfg;
+  std::ifstream fin(cardFile);
+  if (!fin.is_open()) {
+    throw std::runtime_error("Cannot open process card: " + cardFile);
+  }
 
-std::map<char, std::pair<char,char>> pdecay = {
-    { 'A', {'W', 'b'} },
-    { 'B', {'w', 'b'} },
-    { 'C', {'D', 'q'} },
-    { 'D', {'E', 'q'} },
-    { 'E', {'N', 'q'} },
-    { 'W', {'q', 'q' } },
-    { 'w', {'l', 'v' } },
-    { 'Z', {'q', 'q'} },
-    { 'z', {'l', 'l'} },
-    { 'h', {'b', 'b'} },
-    { 'T', {'W', 'b'} },
-    { 't', {'w', 'b'} }
-};
+  std::string line;
+  int lineNo = 0;
+  while (std::getline(fin, line)) {
+    ++lineNo;
+    std::string content = line.substr(0, line.find('#'));
+    if (content.find_first_not_of(" \t\r\n") == std::string::npos) continue;
 
-std::map<char, double> pmass = {
-    //{ 'A', 1000. },
-    //{ 'B', 1000. },
-    { 'A', 5.5 },
-    { 'B', 172.5 },
-    { 'C', 400. },
-    { 'D', 350. },
-    { 'E', 300. },
-    { 'W', 80.4 },
-    { 'w', 80.4 },
-    { 'Z', 91.2 },
-    { 'z', 91.2 },
-    { 'h', 125. },
-    { 'T', 172.5 },
-    { 't', 172.5 },
-    { 'b', 4.2 },
-    { 'q', 0. },
-    { 'l', 0. },
-    { 'v', 0. },
-    { 'N', 200. }
-};
+    std::istringstream iss(content);
+    std::string key;
+    iss >> key;
+    if (key == "nevents") {
+      iss >> cfg.nevents;
+    } else if (key == "outfile") {
+      iss >> cfg.outfile;
+    } else if (key == "production") {
+      std::string pa, pb;
+      iss >> pa >> pb;
+      if (pa.size()!=1 || pb.size()!=1) {
+        throw std::runtime_error("Invalid production definition at line " + std::to_string(lineNo));
+      }
+      cfg.productionA = pa[0];
+      cfg.productionB = pb[0];
+    } else if (key == "particle") {
+      std::string name;
+      double mass;
+      int pdgId;
+      int stable;
+      int visible;
+      std::string d1;
+      std::string d2;
+      iss >> name >> mass >> pdgId >> stable >> visible >> d1 >> d2;
+      if (name.size()!=1 || d1.size()!=1 || d2.size()!=1) {
+        throw std::runtime_error("Invalid particle symbol at line " + std::to_string(lineNo));
+      }
+      char p = name[0];
+      cfg.pmass[p] = mass;
+      cfg.pid[p] = pdgId;
+      cfg.pstable[p] = stable;
+      cfg.pvisible[p] = visible;
+      cfg.pdecay[p] = std::make_pair(d1[0], d2[0]);
+    } else {
+      throw std::runtime_error("Unknown key '" + key + "' at line " + std::to_string(lineNo));
+    }
+  }
 
-std::map<char, int> pid = {
-    { 'A', 9999 },
-    { 'B', 9998 },
-    { 'C', 9997 },
-    { 'D', 9996 },
-    { 'E', 9995 },
-    { 'W', 23 },
-    { 'w', 23 },
-    { 'Z', 24 },
-    { 'z', 24 },
-    { 'h', 25 },
-    { 'T', 6 },
-    { 't', 6 },
-    { 'b', 5 },
-    { 'q', 1 },
-    { 'l', 11 },
-    { 'v', 12 },
-    { 'N', 5000 }
-};
-int nevents = 1000000;
+  return cfg;
+}
 
 ///////////////////////////////////////////////////////
 //
 // Generate pp->AB->...
 //
 ///////////////////////////////////////////////////////
-void test(){
+void test(const char* processCard = "process.card"){
+
+  ProcessConfig cfg = loadProcessCard(processCard);
 
   // Output file
-  //TFile *fout = new TFile("test_WqqWqqNN.root","recreate");
-  TFile *fout = new TFile("test_TbqqTblv.root","recreate");
-  //TFile *fout = new TFile("test_AqqqqNBqqqqN.root","recreate");
+  TFile *fout = new TFile(cfg.outfile.c_str(),"recreate");
   TTree* tout = new TTree("test","test");
   TTree* tinfo = new TTree("info","info");
 
@@ -160,16 +132,16 @@ void test(){
   const int seed=0;
   TRandom3 *rand3 = new TRandom3(seed);
 
-  for (auto const& x : pmass) {
+  for (auto const& x : cfg.pmass) {
     truthM.push_back(x.second);
-    truthId.push_back(pid[x.first]);
+    truthId.push_back(cfg.pid[x.first]);
   }
   tinfo->Fill();
 
-  for(int kk=0; kk<nevents; ++kk){
+  for(int kk=0; kk<cfg.nevents; ++kk){
 
     if (kk%10000==0) {
-      std::cout<<"Completed "<<kk<<"/"<<nevents<<std::endl;
+      std::cout<<"Completed "<<kk<<"/"<<cfg.nevents<<std::endl;
     }
 
     // Reset
@@ -195,17 +167,17 @@ void test(){
     METPhi = 0.;
 
     // Generate event
-    tlv pCM = myGenerator::getRandCM_softRad(pmass['A']+pmass['B']+1);
+    tlv pCM = myGenerator::getRandCM_softRad(cfg.pmass[cfg.productionA]+cfg.pmass[cfg.productionB]+1);
     tlv pA(0,0,0,0), pB(0,0,0,0);
-    myGenerator::getRand2BodyDecay(pA,pB, pCM, pmass['A'], pmass['B']);
+    myGenerator::getRand2BodyDecay(pA,pB, pCM, cfg.pmass[cfg.productionA], cfg.pmass[cfg.productionB]);
     T1Pt = pA.Pt();
     T1Eta = pA.Eta();
     T1Phi = pA.Phi();
-    T1M = pmass['A'];
+    T1M = cfg.pmass[cfg.productionA];
     T2Pt = pB.Pt();
     T2Eta = pB.Eta();
     T2Phi = pB.Phi();
-    T2M = pmass['B'];
+    T2M = cfg.pmass[cfg.productionB];
 
     tlv met(0,0,0,0);
 
@@ -213,69 +185,69 @@ void test(){
     std::vector<std::pair<tlv,char>> stableA;
     std::vector<std::pair<tlv,char>> intB;
     std::vector<std::pair<tlv,char>> stableB;
-    if (pstable['A']) {
-      stableA.emplace_back(pA,'A');
-      if (!pvisible['A']) {
+    if (cfg.pstable[cfg.productionA]) {
+      stableA.emplace_back(pA,cfg.productionA);
+      if (!cfg.pvisible[cfg.productionA]) {
         met = met + pA;
       }
     } else {
-      intA.emplace_back(pA, 'A');
+      intA.emplace_back(pA, cfg.productionA);
     }
-    if (pstable['B']) {
-      stableB.emplace_back(pB, 'B');
-      if (!pvisible['B']) {
+    if (cfg.pstable[cfg.productionB]) {
+      stableB.emplace_back(pB, cfg.productionB);
+      if (!cfg.pvisible[cfg.productionB]) {
         met = met + pB;
       }
     } else {
-      intB.emplace_back(pB, 'B');
+      intB.emplace_back(pB, cfg.productionB);
     }
 
     while (intA.size()>0) {
       for(int ip = intA.size()-1; ip > -1; ip--) {
         tlv p1(0,0,0,0), p2(0,0,0,0), p3(0,0,0,0);
-        char c1 = pdecay[intA[ip].second].first;
-        char c2 = pdecay[intA[ip].second].second;
+        char c1 = cfg.pdecay[intA[ip].second].first;
+        char c2 = cfg.pdecay[intA[ip].second].second;
         char c3;
-        bool is3 = pmass[c1]+pmass[c2]>pmass[intA[ip].second];
-        double mass1 = pmass[c1];
-        double mass2 = pmass[c2];
+        bool is3 = cfg.pmass[c1]+cfg.pmass[c2]>cfg.pmass[intA[ip].second];
+        double mass1 = cfg.pmass[c1];
+        double mass2 = cfg.pmass[c2];
         double mass3 = 0;
         bool order12 = mass1>mass2;
 	if (is3) {
           if (order12) {
-            c3 = pdecay[c1].first;
-            c1 = pdecay[c1].second;
+            c3 = cfg.pdecay[c1].first;
+            c1 = cfg.pdecay[c1].second;
           } else {
-            c3 = pdecay[c2].first;
-            c2 = pdecay[c2].second;
+            c3 = cfg.pdecay[c2].first;
+            c2 = cfg.pdecay[c2].second;
           }
-          mass1 = pmass[c1];
-          mass2 = pmass[c2];
-          mass3 = pmass[c3];
+          mass1 = cfg.pmass[c1];
+          mass2 = cfg.pmass[c2];
+          mass3 = cfg.pmass[c3];
           myGenerator::getRand3BodyDecay(p1, p2, p3, intA[ip].first, mass1, mass2, mass3);
         } else {
           myGenerator::getRand2BodyDecay(p1, p2, intA[ip].first, mass1, mass2);
         }
-        if (pstable[c1]) {
+        if (cfg.pstable[c1]) {
           stableA.emplace_back(p1, c1);
-          if (!pvisible[c1]) {
+          if (!cfg.pvisible[c1]) {
             met = met + p1;
           }
         } else {
           intA.emplace_back(p1, c1);
         }
-        if (pstable[c2]) {
+        if (cfg.pstable[c2]) {
           stableA.emplace_back(p2, c2);
-          if (!pvisible[c2]) {
+          if (!cfg.pvisible[c2]) {
             met = met + p2;
           }
         } else {
           intA.emplace_back(p2, c2);
         }
         if (is3) {
-          if (pstable[c3]) {
+          if (cfg.pstable[c3]) {
             stableA.emplace_back(p3, c3);
-            if (!pvisible[c3]) {
+            if (!cfg.pvisible[c3]) {
               met = met + p3;
             }
           } else {
@@ -289,49 +261,49 @@ void test(){
     while (intB.size()>0) {
       for(int ip = intB.size()-1; ip > -1; ip--) {
         tlv p1(0,0,0,0), p2(0,0,0,0), p3(0,0,0,0);
-        char c1 = pdecay[intB[ip].second].first;
-        char c2 = pdecay[intB[ip].second].second;
+        char c1 = cfg.pdecay[intB[ip].second].first;
+        char c2 = cfg.pdecay[intB[ip].second].second;
         char c3;
-        bool is3 = pmass[c1]+pmass[c2]>pmass[intB[ip].second];
-        double mass1 = pmass[c1];
-        double mass2 = pmass[c2];
+        bool is3 = cfg.pmass[c1]+cfg.pmass[c2]>cfg.pmass[intB[ip].second];
+        double mass1 = cfg.pmass[c1];
+        double mass2 = cfg.pmass[c2];
         double mass3 = 0;
         bool order12 = mass1>mass2;
 	if (is3) {
           if (order12) {
-            c3 = pdecay[c1].first;
-            c1 = pdecay[c1].second;
+            c3 = cfg.pdecay[c1].first;
+            c1 = cfg.pdecay[c1].second;
           } else {
-            c3 = pdecay[c2].first;
-            c2 = pdecay[c2].second;
+            c3 = cfg.pdecay[c2].first;
+            c2 = cfg.pdecay[c2].second;
           }
-          mass1 = pmass[c1];
-          mass2 = pmass[c2];
-          mass3 = pmass[c3];
+          mass1 = cfg.pmass[c1];
+          mass2 = cfg.pmass[c2];
+          mass3 = cfg.pmass[c3];
           myGenerator::getRand3BodyDecay(p1, p2, p3, intB[ip].first, mass1, mass2, mass3);
         } else {
           myGenerator::getRand2BodyDecay(p1, p2, intB[ip].first, mass1, mass2);
         }
-        if (pstable[c1]) {
+        if (cfg.pstable[c1]) {
           stableB.emplace_back(p1, c1);
-          if (!pvisible[c1]) {
+          if (!cfg.pvisible[c1]) {
             met = met + p1;
           }
         } else {
           intB.emplace_back(p1, c1);
         }
-        if (pstable[c2]) {
+        if (cfg.pstable[c2]) {
           stableB.emplace_back(p2, c2);
-          if (!pvisible[c2]) {
+          if (!cfg.pvisible[c2]) {
             met = met + p2;
           }
         } else {
           intB.emplace_back(p2, c2);
         }
         if (is3) {
-          if (pstable[c3]) {
+          if (cfg.pstable[c3]) {
             stableB.emplace_back(p3, c3);
-            if (!pvisible[c3]) {
+            if (!cfg.pvisible[c3]) {
               met = met + p3;
             }
           } else {
@@ -350,13 +322,13 @@ void test(){
       P1Pt.push_back(stableA[ip].first.Pt());
       P1Eta.push_back(stableA[ip].first.Eta());
       P1Phi.push_back(stableA[ip].first.Phi());
-      P1Id.push_back(pid[stableA[ip].second]);
+      P1Id.push_back(cfg.pid[stableA[ip].second]);
     }
     for(unsigned int ip = 0; ip < stableB.size(); ip++) {
       P2Pt.push_back(stableB[ip].first.Pt());
       P2Eta.push_back(stableB[ip].first.Eta());
       P2Phi.push_back(stableB[ip].first.Phi());
-      P2Id.push_back(pid[stableB[ip].second]);
+      P2Id.push_back(cfg.pid[stableB[ip].second]);
     }
 
     tout->Fill();
@@ -372,4 +344,3 @@ void test(){
 
   return ;
 }
-

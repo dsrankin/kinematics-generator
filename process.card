@@ -1,0 +1,31 @@
+# Process card for test.cc
+#
+# Syntax:
+#   nevents <int>
+#   outfile <root_file_name>
+#   production <particleA> <particleB>
+#   particle <name> <mass> <pid> <stable(0|1)> <visible(0|1)> <decay1> <decay2>
+#
+# For stable particles, decay1/decay2 are ignored but must still be present.
+
+nevents 1000000
+outfile test_TbqqTblv.root
+production A B
+
+particle A 5.5 9999 0 0 W b
+particle B 172.5 9998 0 0 w b
+particle C 400 9997 0 0 D q
+particle D 350 9996 0 0 E q
+particle E 300 9995 0 0 N q
+particle W 80.4 23 0 0 q q
+particle w 80.4 23 0 0 l v
+particle Z 91.2 24 0 0 q q
+particle z 91.2 24 0 0 l l
+particle h 125 25 0 0 b b
+particle T 172.5 6 0 0 W b
+particle t 172.5 6 0 0 w b
+particle b 4.2 5 1 1 x x
+particle q 0 1 1 1 x x
+particle l 0 11 1 1 x x
+particle v 0 12 1 0 x x
+particle N 200 5000 1 0 x x
