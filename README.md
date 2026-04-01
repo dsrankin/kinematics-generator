@@ -4,50 +4,23 @@ Running the test:
 <pre>
 root -l test.cc
 </pre>
+or with an explicit process card:
+<pre>
+root -l -q 'test.cc("process.card")'
+</pre>
 
-#### Specifying decays
+#### Process card configuration
 
-The current script will always start with the production of and A and B.
-You can then specify the decay chain through the maps at the top of `test.cc`
+The generator now reads all model/process settings from a process card
+(`process.card` by default), so you do not need to edit `test.cc`.
 
-This specifies if the particle is stable or not.
+Card syntax:
 ```
-std::map<char, bool> pstable = {
-    { 'A', false },
-...
-```
-
-This specifies if the particle is visible or not. For unstable particles this has no effect, but for stable particles it will result in the particle being included in the MET.
-```
-std::map<char, bool> pvisible = {
-    { 'A', false },
-...
+nevents <int>
+outfile <root_file_name>
+production <particleA> <particleB>
+particle <name> <mass> <pid> <stable(0|1)> <visible(0|1)> <decay1> <decay2>
 ```
 
-This specifies what the particle should decay into.
-```
-std::map<char, std::pair<char,char>> pdecay = {
-    { 'A', {'W', 'b'} },
-...
-```
-
-This specifies the mass of the particle. 
-```
-std::map<char, double> pmass = {
-    { 'A', 5.5 },
-...
-```
-
-Note: a three-body decay can be done by specifying a decay such that the daughter masses are larger than that of the mother.
-In this case, the heavier mass daughter will immediate be decayed.
-For example, if A (m=100) decays into C (m=50) and D (m=500), and D decays into E (m=5) and F (m=0), then this will actuall perform a 3 body decay of A into C, E, and F.
-
-This specifies the ID number to use to encode the particle.
-```
-std::map<char, int> pid = {
-    { 'A', 9999 },
-...
-```
-Finally, the number of events can be specifies with this line: `int nevents = 1000000;`
-
-For more, better just read the code.
+For stable particles, `decay1` and `decay2` are ignored, but placeholders are required.
+See `process.card` for a full example.
