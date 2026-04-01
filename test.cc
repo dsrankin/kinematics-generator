@@ -16,13 +16,32 @@ struct ProcessConfig {
   std::map<char, bool> pstable;
   std::map<char, bool> pvisible;
   std::map<char, std::pair<char,char>> pdecay;
-  std::map<char, double> pmass;
+  std::map<char, double> pmassMin;
+  std::map<char, double> pmassMax;
   std::map<char, int> pid;
   int nevents = 1000000;
   std::string outfile = "test.root";
   char productionA = 'A';
   char productionB = 'B';
 };
+
+std::map<char, double> sampleMasses(const ProcessConfig &cfg){
+  std::map<char, double> sampledMass;
+  for (auto const& x : cfg.pmassMin) {
+    const char p = x.first;
+    const double minMass = x.second;
+    const double maxMass = cfg.pmassMax.at(p);
+    if (maxMass < minMass) {
+      throw std::runtime_error("Invalid mass range for particle '" + std::string(1, p) + "'");
+    }
+    if (maxMass == minMass) {
+      sampledMass[p] = minMass;
+    } else {
+      sampledMass[p] = gRandom->Uniform(minMass, maxMass);
+    }
+  }
+  return sampledMass;
+}
 
 ProcessConfig loadProcessCard(const std::string &cardFile){
   ProcessConfig cfg;
@@ -55,18 +74,23 @@ ProcessConfig loadProcessCard(const std::string &cardFile){
       cfg.productionB = pb[0];
     } else if (key == "particle") {
       std::string name;
-      double mass;
+      double massMin;
+      double massMax;
       int pdgId;
       int stable;
       int visible;
       std::string d1;
       std::string d2;
-      iss >> name >> mass >> pdgId >> stable >> visible >> d1 >> d2;
+      iss >> name >> massMin >> massMax >> pdgId >> stable >> visible >> d1 >> d2;
       if (name.size()!=1 || d1.size()!=1 || d2.size()!=1) {
         throw std::runtime_error("Invalid particle symbol at line " + std::to_string(lineNo));
       }
       char p = name[0];
-      cfg.pmass[p] = mass;
+      if (massMax < massMin) {
+        throw std::runtime_error("particle '" + name + "' has mass_max < mass_min at line " + std::to_string(lineNo));
+      }
+      cfg.pmassMin[p] = massMin;
+      cfg.pmassMax[p] = massMax;
       cfg.pid[p] = pdgId;
       cfg.pstable[p] = stable;
       cfg.pvisible[p] = visible;
@@ -98,6 +122,8 @@ void test(const char* processCard = "process.card"){
   float METPt, METEta, METPhi;
 
   std::vector<float> truthM;
+  std::vector<float> truthMMin;
+  std::vector<float> truthMMax;
   std::vector<int> truthId;
 
   std::vector<float> P1Pt, P1Eta, P1Phi;
@@ -127,13 +153,17 @@ void test(const char* processCard = "process.card"){
   tout->Branch("METPhi", &METPhi, "METPhi/F");
 
   tinfo->Branch("truthM", &truthM);
+  tinfo->Branch("truthMMin", &truthMMin);
+  tinfo->Branch("truthMMax", &truthMMax);
   tinfo->Branch("truthId", &truthId);
 
   const int seed=0;
-  TRandom3 *rand3 = new TRandom3(seed);
+  gRandom = new TRandom3(seed);
 
-  for (auto const& x : cfg.pmass) {
+  for (auto const& x : cfg.pmassMin) {
     truthM.push_back(x.second);
+    truthMMin.push_back(x.second);
+    truthMMax.push_back(cfg.pmassMax[x.first]);
     truthId.push_back(cfg.pid[x.first]);
   }
   tinfo->Fill();
@@ -166,18 +196,20 @@ void test(const char* processCard = "process.card"){
     METEta = 0.;
     METPhi = 0.;
 
+    const std::map<char, double> eventMass = sampleMasses(cfg);
+
     // Generate event
-    tlv pCM = myGenerator::getRandCM_softRad(cfg.pmass[cfg.productionA]+cfg.pmass[cfg.productionB]+1);
+    tlv pCM = myGenerator::getRandCM_softRad(eventMass.at(cfg.productionA)+eventMass.at(cfg.productionB)+1);
     tlv pA(0,0,0,0), pB(0,0,0,0);
-    myGenerator::getRand2BodyDecay(pA,pB, pCM, cfg.pmass[cfg.productionA], cfg.pmass[cfg.productionB]);
+    myGenerator::getRand2BodyDecay(pA,pB, pCM, eventMass.at(cfg.productionA), eventMass.at(cfg.productionB));
     T1Pt = pA.Pt();
     T1Eta = pA.Eta();
     T1Phi = pA.Phi();
-    T1M = cfg.pmass[cfg.productionA];
+    T1M = eventMass.at(cfg.productionA);
     T2Pt = pB.Pt();
     T2Eta = pB.Eta();
     T2Phi = pB.Phi();
-    T2M = cfg.pmass[cfg.productionB];
+    T2M = eventMass.at(cfg.productionB);
 
     tlv met(0,0,0,0);
 
@@ -208,9 +240,9 @@ void test(const char* processCard = "process.card"){
         char c1 = cfg.pdecay[intA[ip].second].first;
         char c2 = cfg.pdecay[intA[ip].second].second;
         char c3;
-        bool is3 = cfg.pmass[c1]+cfg.pmass[c2]>cfg.pmass[intA[ip].second];
-        double mass1 = cfg.pmass[c1];
-        double mass2 = cfg.pmass[c2];
+        bool is3 = eventMass.at(c1)+eventMass.at(c2)>eventMass.at(intA[ip].second);
+        double mass1 = eventMass.at(c1);
+        double mass2 = eventMass.at(c2);
         double mass3 = 0;
         bool order12 = mass1>mass2;
 	if (is3) {
@@ -221,9 +253,9 @@ void test(const char* processCard = "process.card"){
             c3 = cfg.pdecay[c2].first;
             c2 = cfg.pdecay[c2].second;
           }
-          mass1 = cfg.pmass[c1];
-          mass2 = cfg.pmass[c2];
-          mass3 = cfg.pmass[c3];
+          mass1 = eventMass.at(c1);
+          mass2 = eventMass.at(c2);
+          mass3 = eventMass.at(c3);
           myGenerator::getRand3BodyDecay(p1, p2, p3, intA[ip].first, mass1, mass2, mass3);
         } else {
           myGenerator::getRand2BodyDecay(p1, p2, intA[ip].first, mass1, mass2);
@@ -264,9 +296,9 @@ void test(const char* processCard = "process.card"){
         char c1 = cfg.pdecay[intB[ip].second].first;
         char c2 = cfg.pdecay[intB[ip].second].second;
         char c3;
-        bool is3 = cfg.pmass[c1]+cfg.pmass[c2]>cfg.pmass[intB[ip].second];
-        double mass1 = cfg.pmass[c1];
-        double mass2 = cfg.pmass[c2];
+        bool is3 = eventMass.at(c1)+eventMass.at(c2)>eventMass.at(intB[ip].second);
+        double mass1 = eventMass.at(c1);
+        double mass2 = eventMass.at(c2);
         double mass3 = 0;
         bool order12 = mass1>mass2;
 	if (is3) {
@@ -277,9 +309,9 @@ void test(const char* processCard = "process.card"){
             c3 = cfg.pdecay[c2].first;
             c2 = cfg.pdecay[c2].second;
           }
-          mass1 = cfg.pmass[c1];
-          mass2 = cfg.pmass[c2];
-          mass3 = cfg.pmass[c3];
+          mass1 = eventMass.at(c1);
+          mass2 = eventMass.at(c2);
+          mass3 = eventMass.at(c3);
           myGenerator::getRand3BodyDecay(p1, p2, p3, intB[ip].first, mass1, mass2, mass3);
         } else {
           myGenerator::getRand2BodyDecay(p1, p2, intB[ip].first, mass1, mass2);

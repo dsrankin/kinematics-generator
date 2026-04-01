@@ -19,8 +19,10 @@ Card syntax:
 nevents <int>
 outfile <root_file_name>
 production <particleA> <particleB>
-particle <name> <mass> <pid> <stable(0|1)> <visible(0|1)> <decay1> <decay2>
+particle <name> <mass_min> <mass_max> <pid> <stable(0|1)> <visible(0|1)> <decay1> <decay2>
 ```
+
+If `mass_min == mass_max`, the mass is fixed (legacy behavior). If they differ, the mass is sampled per event from a uniform prior in `[mass_min, mass_max)`.
 
 For stable particles, `decay1` and `decay2` are ignored, but placeholders are required.
 See `process.card` for a full example.
