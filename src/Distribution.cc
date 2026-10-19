@@ -90,6 +90,13 @@ Distribution Distribution::exponential(double s, double off) {
   return d;
 }
 
+Distribution Distribution::poisson(double mu) {
+  Distribution d;
+  d.type = Type::Poisson;
+  d.mean = mu;
+  return d;
+}
+
 double Distribution::sample(Rng &rng) const {
   switch (type) {
     case Type::Fixed: return value;
@@ -128,6 +135,7 @@ double Distribution::sample(Rng &rng) const {
       return values[rng.categorical(weights)];
     }
     case Type::Exponential: return offset + rng.exponential(scale);
+    case Type::Poisson: return rng.poisson(mean);
   }
   return value;
 }
@@ -173,6 +181,9 @@ void Distribution::validate(const std::string &c) const {
     case Type::Exponential:
       if (!(scale > 0)) fail("exponential requires scale > 0");
       break;
+    case Type::Poisson:
+      if (!(mean >= 0)) fail("poisson requires mean >= 0");
+      break;
   }
 }
 
@@ -186,6 +197,7 @@ std::string Distribution::typeName() const {
     case Type::BreitWigner: return "breit_wigner";
     case Type::Categorical: return "categorical";
     case Type::Exponential: return "exponential";
+    case Type::Poisson: return "poisson";
   }
   return "fixed";
 }
@@ -210,6 +222,7 @@ Distribution Distribution::fromYAML(const YAML::Node &n, const std::string &c) {
     if (!n["values"] || !n["values"].IsSequence()) throw std::invalid_argument(ctx(c) + ": categorical requires a 'values' list");
     d = categorical(n["values"].as<std::vector<double>>(), n["weights"] ? n["weights"].as<std::vector<double>>() : std::vector<double>{});
   } else if (t == "exponential") d = exponential(req("scale"), opt("offset", 0));
+  else if (t == "poisson") d = poisson(req("mean"));
   else throw std::invalid_argument(ctx(c) + ": unknown distribution '" + t + "'");
   d.validate(c);
   return d;
@@ -235,6 +248,7 @@ void Distribution::emitFields(YAML::Emitter &out) const {
       if (!weights.empty()) out << YAML::Key << "weights" << YAML::Value << YAML::Flow << weights;
       break;
     case Type::Exponential: kv("scale", scale); kv("offset", offset); break;
+    case Type::Poisson: kv("mean", mean); break;
   }
 }
 

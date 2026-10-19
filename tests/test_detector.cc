@@ -202,7 +202,8 @@ TEST(environment_randomization_and_event_scope) {
   for (const auto &e : envs) {
     const ObservedEvent ob = det.apply(ev, e);
     CHECK(ob.env_id == e.env_id && ob.truth_seed == ev.seed);
-    CHECK(ob.detector_params.size() == 1 && ob.detector_params[0].first == "detector.met.soft_sigma");
+    CHECK(ob.detector_params.size() == 2 && ob.detector_params[0].first == "detector.met.soft_sigma");
+    CHECK(ob.detector_params[1].first == "detector.correlations.jes.shift");
     mets.insert(ob.met_x);
   }
   CHECK(mets.size() == envs.size());

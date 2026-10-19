@@ -277,17 +277,29 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
       }
     }
   }
-  double recoilPt = 0;
-  if (is.recoil == RecoilModel::Exponential) recoilPt = v[is.recoil_min] + rng.exponential(v[is.recoil_mean] - v[is.recoil_min]);
-  else if (is.recoil == RecoilModel::Param) recoilPt = v[is.recoil_pt];
-  if (recoilPt < 0) throw std::runtime_error(ctx + ": negative recoil pT");
-  const double phi = rng.uniform(0, 2 * M_PI);
-  const P4 system = P4::fromMassRapidityPt(sqrtS, y, recoilPt, phi);
-  P4 recoil;
+  // Recoil: n_jets massless jets, each with its own pT, rapidity and azimuth;
+  // the hard system takes the opposite total transverse momentum.
+  int nJets = 0;
   if (is.recoil != RecoilModel::None) {
-    const double yr = v[is.recoil_rapidity];
-    recoil = P4(-recoilPt * std::cos(phi), -recoilPt * std::sin(phi), recoilPt * std::sinh(yr), recoilPt * std::cosh(yr));
+    const double nraw = v[is.recoil_n_jets];
+    if (!(nraw >= 0) || nraw > 1000) throw std::runtime_error(ctx + ": recoil n_jets must be in [0, 1000], got " + num(nraw));
+    nJets = static_cast<int>(std::lround(nraw));
   }
+  std::vector<P4> recoilJets;
+  P4 recoil;
+  for (int k = 0; k < nJets; ++k) {
+    double pt;
+    if (is.recoil == RecoilModel::Exponential) pt = v[is.recoil_min] + rng.exponential(v[is.recoil_mean] - v[is.recoil_min]);
+    else pt = k == 0 ? v[is.recoil_pt] : t.params.redraw(is.recoil_pt, v, rng);
+    if (pt < 0) throw std::runtime_error(ctx + ": negative recoil pT");
+    const double phi = rng.uniform(0, 2 * M_PI);
+    const double yr = k == 0 ? v[is.recoil_rapidity] : t.params.redraw(is.recoil_rapidity, v, rng);
+    recoilJets.emplace_back(-pt * std::cos(phi), -pt * std::sin(phi), pt * std::sinh(yr), pt * std::cosh(yr));
+    recoil += recoilJets.back();
+  }
+  const double sysPt = std::hypot(recoil.px, recoil.py);
+  const double sysPhi = sysPt > 0 ? std::atan2(-recoil.py, -recoil.px) : 0.0;
+  const P4 system = P4::fromMassRapidityPt(sqrtS, y, sysPt, sysPhi);
   const P4 tot = system + recoil;
   const P4 in1(0, 0, 0.5 * (tot.e + tot.pz), 0.5 * (tot.e + tot.pz));
   const P4 in2(0, 0, -0.5 * (tot.e - tot.pz), 0.5 * (tot.e - tot.pz));
@@ -342,15 +354,15 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
     tp.object_type = "invisible";
     return tp;
   };
-  ev.particles.reserve(nodes.size() + 3);
+  ev.particles.reserve(nodes.size() + 2 + recoilJets.size());
   ev.particles.push_back(parton(in1, 0));
   ev.particles.push_back(parton(in2, 1));
-  if (is.recoil != RecoilModel::None) {
+  for (const P4 &j : recoilJets) {
     TruthParticle r;
-    r.index = 2;
+    r.index = static_cast<int>(ev.particles.size());
     r.name = "recoil";
     r.pdg = 21;
-    r.p4 = recoil;
+    r.p4 = j;
     r.status = is.emit_recoil ? TruthStatus::Final : TruthStatus::Recoil;
     r.object_type = is.emit_recoil ? is.recoil_object : "invisible";
     ev.particles.push_back(r);

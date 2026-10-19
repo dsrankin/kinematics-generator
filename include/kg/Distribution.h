@@ -21,7 +21,7 @@ double sampleRelativisticBW(Rng &rng, double mean, double width, double lo, doub
 
 class Distribution {
  public:
-  enum class Type { Fixed, Uniform, LogUniform, Gaussian, TruncatedGaussian, BreitWigner, Categorical, Exponential };
+  enum class Type { Fixed, Uniform, LogUniform, Gaussian, TruncatedGaussian, BreitWigner, Categorical, Exponential, Poisson };
 
   Type type = Type::Fixed;
   double value = 0;                                          // fixed
@@ -31,6 +31,7 @@ class Distribution {
   double width = 0;                                          // breit_wigner (FWHM)
   bool relativistic = false;                                 // breit_wigner
   double scale = 1, offset = 0;                              // exponential: offset + Exp(scale)
+                                                             // poisson: uses mean
   std::vector<double> values, weights;                       // categorical
 
   static Distribution fixed(double v);
@@ -42,6 +43,7 @@ class Distribution {
                                   double hi = std::numeric_limits<double>::infinity(), bool relativistic = false);
   static Distribution categorical(std::vector<double> vals, std::vector<double> w = {});
   static Distribution exponential(double scale, double offset = 0);
+  static Distribution poisson(double mean);
 
   double sample(Rng &rng) const;
 

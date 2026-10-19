@@ -68,6 +68,10 @@ class ParamSet {
   // Re-draw event-scoped parameters in place.
   void resampleEvent(std::vector<double> &values, Rng &rng) const;
 
+  // Fresh value of parameter i given the other values (a new draw for distributions;
+  // used for per-object draws such as individual ISR jets).
+  double redraw(int i, const std::vector<double> &values, Rng &rng) const { return evalOne(i, values, rng); }
+
   // Copy in which every task-scoped parameter is replaced by its value in `values`.
   ParamSet frozen(const std::vector<double> &values) const;
 

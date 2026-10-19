@@ -89,7 +89,8 @@ mass: {dist: gaussian, mean: 91, sigma: 1, scope: event} # re-drawn every event
 ```
 
 Distributions: `fixed`, `uniform`, `loguniform`, `gaussian`, `truncated_gaussian`, `breit_wigner`
-(optionally `relativistic`), `categorical` (`values`, `weights`), `exponential` (`scale`, `offset`).
+(optionally `relativistic`), `categorical` (`values`, `weights`), `exponential` (`scale`, `offset`),
+`poisson` (`mean`).
 Expressions support `+ - * / ^`, parentheses, `min max sqrt abs log exp pow`, and reference any
 parameter by name. A bare particle name in `ratio_of` means its mass.
 
@@ -171,21 +172,30 @@ initial_state:
   #        threshold_exponential: sqrt_s = threshold + Exp(scale)
   #        fixed: value ;  uniform: min, max
   rapidity: from_pdf              # or any parameter, e.g. {dist: gaussian, mean: 0, sigma: 1, scope: event}
-  recoil: {model: exponential, min_pt: 10, mean_pt: 15, emit: false, object: jet, rapidity: <param>}
+  recoil: {model: exponential, min_pt: 10, mean_pt: 15, n_jets: 1, emit: false, object: jet, rapidity: <param>}
   #        model: param with pt: <param>;  or recoil: none (default)
+  #        n_jets: e.g. {dist: poisson, mean: 1.5, scope: event} for multi-jet ISR
 ```
 
 `exponential_pdf` is the legacy luminosity model: x₁, x₂ ~ Exp(τ) on (0, 1] with
 τ = tau + tau_slope·threshold/TeV, accepted when √ŝ ≥ Σm + threshold_offset. For a single resonance
-the rapidity is drawn from the same density conditional on x₁x₂ = m²/s. The recoil gives the hard
-system transverse momentum; the recoil itself is recorded as a massless truth particle (status
-`Recoil`, unclustered) or, with `emit: true`, as a visible final-state object. Incoming partons are
-reconstructed so that `Σ incoming = Σ final + recoil` exactly.
+the rapidity is drawn from the same density conditional on x₁x₂ = m²/s.
+
+The recoil (ISR) consists of `n_jets` massless jets (default 1; 0 is allowed and leaves the hard
+system with no transverse momentum). Each jet draws its own pT (`exponential`: min_pt +
+Exp(mean_pt − min_pt); `param`: a fresh draw of `pt` per jet when it is an event-scoped
+distribution), its own rapidity (`rapidity`, default uniform in ±2.5 per jet) and a uniform
+azimuth. The hard system takes the opposite of their summed transverse momentum. The jets are
+recorded as truth particles named `recoil` (status `Recoil`, treated as unclustered energy by the
+detector) or, with `emit: true`, as visible final-state objects of type `object`. Incoming partons
+are reconstructed so that `Σ incoming = Σ final + recoil` exactly. With `n_jets: 1` the result is
+identical to the single-recoil model. The ISR jet kinematics are uncorrelated with each other and
+with the hard process; this is a recoil model, not a parton shower.
 
 ## Truth event
 
-`TruthEvent::particles` is a flat list. Indices 0 and 1 are the incoming partons, index 2 the recoil
-(when a recoil model is set), then the decay tree in breadth-first order. Each `TruthParticle` has
+`TruthEvent::particles` is a flat list. Indices 0 and 1 are the incoming partons, followed by the recoil
+jets (if any), then the decay tree in breadth-first order. Each `TruthParticle` has
 name, PDG id, charge, four-vector, generated mass, `parent` (−1 for produced particles), `children`,
 status (`Incoming`, `Recoil`, `Decayed`, `Final`), species index into the task's particle table,
 `branch` (which produced particle it descends from), `depth`, chosen `decay_mode` and object type.
@@ -210,6 +220,23 @@ mean a perfect detector):
 | `scale` | response scale (four-vector multiplied by scale·(1 + σ·N(0,1))) |
 | `sigma_eta`, `sigma_phi` | Gaussian angular smearing |
 | `misid: {type: p}` | probability to be reconstructed as another type (Σ ≤ 1) |
+
+Correlated response (`detector.correlations`), e.g. a jet energy scale shared by light and b jets:
+
+```yaml
+correlations:
+  jes: {types: [jet, bjet], scale_sigma: 0.02, resolution_correlation: 0.3, unclustered: true}
+```
+
+Per event and group a shift δ ~ N(0, scale_sigma) multiplies the response of every object of the
+group's types, and the resolution fluctuation of each object is g = √ρ·g_common + √(1 − ρ)·g_object
+with ρ = `resolution_correlation`, so the marginal resolution is unchanged while objects in the
+same event fluctuate together. With `unclustered: true` the shift also applies to the unclustered
+recoil in the MET (at most one group may do so). A type can belong to one group only. Groups are
+matched on the true object type, as for all other response parameters. Each event records
+`detector.correlations.<group>.shift` in `ObservedEvent::detector_params`; both parameters can be
+randomised per environment or per event like any other. Because the MET is built from the smeared
+objects, correlated shifts propagate into it consistently.
 
 `fakes: {rate, types, pt_min, pt_scale, eta_max}` adds Poisson(rate) fake objects with
 pT = pt_min + Exp(pt_scale), uniform η and φ. `met: {soft_sigma, sumet_coeff, recoil_scale,
@@ -297,6 +324,9 @@ with `test.cc` is not possible because ROOT's `TRandom3` is no longer used.
 
 * No matrix elements, spin correlations beyond per-decay angular polynomials, parton showers,
   hadronisation or interference; widths enter only through Breit-Wigner line shapes.
-* Recoil is a single massless object; there is no underlying event or pile-up beyond the MET soft
-  term and fakes.
-* Detector response is per object, without overlap removal or isolation.
+* ISR jets are independent massless objects (no shower, no colour coherence); there is no
+  underlying event or pile-up beyond the MET soft term and fakes.
+* Detector response is per object apart from the correlation groups, without overlap removal or
+  isolation.
+* Parton momentum fractions are not re-checked after adding ISR jets, so very hard ISR can give
+  x₁ or x₂ slightly above one.

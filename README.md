@@ -16,7 +16,7 @@ and meta-learning of collider-physics models:
 * An **observed event** is a variable-length list of reconstructed objects
   (four-vector, type, arbitrary named features, optional truth association)
   plus MET, produced by a configurable detector model (smearing, efficiencies,
-  fakes, misidentification, MET).
+  fakes, misidentification, correlated energy-scale shifts, MET).
 
 Everything runs in memory (C++ or Python); ROOT and YAML output are optional.
 See [DESIGN.md](DESIGN.md) for the API, data flow and full configuration
@@ -85,9 +85,9 @@ build/kg-generate --prior examples/randomized_tasks.yaml --tasks 3 --save-tasks 
 
 | File | Shows |
 |---|---|
-| `examples/fixed_process.yaml` | fixed-process generation: t t̄ with widths, W branching fractions, helicity angular distributions, a realistic detector |
+| `examples/fixed_process.yaml` | fixed-process generation: t t̄ with widths, W branching fractions, helicity angular distributions, Poisson multi-jet ISR, a realistic detector with a correlated jet energy scale |
 | `examples/randomized_tasks.yaml` | randomised tasks: log-uniform masses, daughter/parent mass ratios, widths as fractions of masses, per-task decay-mode choice, single/pair/1–3 multiplicity production, two-process mixtures, randomised features |
-| `examples/detector_randomization.yaml` | detector-domain randomisation: one physics process, environment-level and event-level detector parameters |
+| `examples/detector_randomization.yaml` | detector-domain randomisation: one physics process, environment-level and event-level detector parameters, randomised correlated jet energy scale |
 | `examples/migrated_process.yaml` | `process.card` converted with `kg-convert-card` |
 | `examples/stream_example.cc`, `examples/train_feed.py` | in-memory streaming from C++ and Python |
 
@@ -170,7 +170,8 @@ and `decay2` are ignored, but placeholders are required.
 `ctest` runs the C++ suite (decay kinematics and conservation, recursive
 ancestry, Dalitz flatness, angular models, parameter distributions and mass-ratio
 constraints, graph and threshold validation, variable multiplicities, detector
-smearing/efficiency/fakes/misidentification/MET, features, deterministic
+smearing/efficiency/fakes/misidentification/MET, multi-jet ISR, correlated
+smearing, features, deterministic
 reproducibility, task/environment/event serialisation round trips, splits, the
 legacy adapter), the ROOT suite (writer, legacy trees, comparison with
 `myGenerator.h`) and the Python suite.

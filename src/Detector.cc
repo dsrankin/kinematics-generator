@@ -100,7 +100,36 @@ DetectorPrior parseDetectorPrior(const YAML::Node &n) {
   d.met.recoil_scale = ps.parseOr(m ? m["recoil_scale"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.recoil_scale", 1.0);
   d.met.recoil_resolution = ps.parseOr(m ? m["recoil_resolution"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.recoil_resolution", 0.0);
   d.met.lost_to_met = ps.parseOr(m ? m["lost_to_met"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.lost_to_met", 1.0);
+  if (n && n["correlations"]) {
+    if (!n["correlations"].IsMap()) throw std::invalid_argument("detector.correlations must be a map name -> group");
+    std::set<std::string> used;
+    bool unclustered = false;
+    for (const auto &kv : n["correlations"]) {
+      CorrelationDef c;
+      c.name = kv.first.as<std::string>();
+      const YAML::Node g = kv.second;
+      const std::string ctx = "detector.correlations." + c.name;
+      for (const auto &k : g)
+        if (!std::set<std::string>{"types", "scale_sigma", "resolution_correlation", "unclustered"}.count(k.first.as<std::string>()))
+          throw std::invalid_argument(ctx + ": unknown key '" + k.first.as<std::string>() + "'");
+      if (!g["types"] || !g["types"].IsSequence() || g["types"].size() == 0)
+        throw std::invalid_argument(ctx + ": needs a non-empty 'types' list");
+      c.types = g["types"].as<std::vector<std::string>>();
+      for (const auto &t : c.types)
+        if (!used.insert(t).second) throw std::invalid_argument(ctx + ": type '" + t + "' belongs to more than one correlation group");
+      c.unclustered = g["unclustered"] && g["unclustered"].as<bool>();
+      if (c.unclustered && unclustered) throw std::invalid_argument(ctx + ": only one correlation group may include the unclustered recoil");
+      unclustered = unclustered || c.unclustered;
+      c.scale_sigma = ps.parseOr(g["scale_sigma"], ctx + ".scale_sigma", 0.0);
+      c.resolution_correlation = ps.parseOr(g["resolution_correlation"], ctx + ".resolution_correlation", 0.0);
+      d.correlations.push_back(std::move(c));
+    }
+  }
   if (n && n["sort_by_pt"]) d.sort_by_pt = n["sort_by_pt"].as<bool>();
+  if (n)
+    for (const auto &kv : n)
+      if (!std::set<std::string>{"objects", "fakes", "met", "correlations", "sort_by_pt"}.count(kv.first.as<std::string>()))
+        throw std::invalid_argument("detector: unknown key '" + kv.first.as<std::string>() + "'");
   ps.compile();
   return d;
 }
@@ -154,6 +183,18 @@ void emitDetectorPrior(YAML::Emitter &out, const DetectorPrior &d) {
   emitP(out, ps, "recoil_resolution", d.met.recoil_resolution);
   emitP(out, ps, "lost_to_met", d.met.lost_to_met);
   out << YAML::EndMap;
+  if (!d.correlations.empty()) {
+    out << YAML::Key << "correlations" << YAML::Value << YAML::BeginMap;
+    for (const auto &c : d.correlations) {
+      out << YAML::Key << c.name << YAML::Value << YAML::BeginMap;
+      out << YAML::Key << "types" << YAML::Value << YAML::Flow << c.types;
+      emitP(out, ps, "scale_sigma", c.scale_sigma);
+      emitP(out, ps, "resolution_correlation", c.resolution_correlation);
+      if (c.unclustered) out << YAML::Key << "unclustered" << YAML::Value << true;
+      out << YAML::EndMap;
+    }
+    out << YAML::EndMap;
+  }
   out << YAML::Key << "sort_by_pt" << YAML::Value << d.sort_by_pt;
   out << YAML::EndMap;
 }
@@ -228,6 +269,19 @@ DetectorState buildDetectorState(const DetectorPrior &d, const std::vector<doubl
   s.lost_to_met = v[d.met.lost_to_met];
   check(s.soft_sigma >= 0 && s.sumet_coeff >= 0 && s.recoil_resolution >= 0, ctx + " detector.met", "resolutions must be >= 0");
   check(s.lost_to_met >= 0 && s.lost_to_met <= 1, ctx + " detector.met", "lost_to_met must be in [0, 1]");
+  for (const auto &c : d.correlations) {
+    CorrelationGroup g;
+    g.name = c.name;
+    g.types = c.types;
+    g.unclustered = c.unclustered;
+    g.scale_sigma = v[c.scale_sigma];
+    g.rho = v[c.resolution_correlation];
+    const std::string cc = ctx + " detector.correlations." + c.name;
+    check(g.scale_sigma >= 0, cc, "scale_sigma must be >= 0");
+    check(g.rho >= 0 && g.rho <= 1, cc, "resolution_correlation must be in [0, 1]");
+    for (const auto &t : g.types) s.group_of[t] = static_cast<int>(s.groups.size());
+    s.groups.push_back(std::move(g));
+  }
   s.sort_by_pt = d.sort_by_pt;
   return s;
 }

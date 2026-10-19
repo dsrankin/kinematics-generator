@@ -132,6 +132,14 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   }
   const DetectorState &ds = *state;
 
+  // Correlated response: one scale shift and one common resolution draw per group.
+  std::vector<double> groupShift(ds.groups.size()), groupCommon(ds.groups.size());
+  for (size_t g = 0; g < ds.groups.size(); ++g) {
+    groupShift[g] = ds.groups[g].scale_sigma * rng.gauss();
+    groupCommon[g] = rng.gauss();
+    out.detector_params.emplace_back("detector.correlations." + ds.groups[g].name + ".shift", groupShift[g]);
+  }
+
   double sumx = 0, sumy = 0;         // observed visible objects
   double lostx = 0, losty = 0;       // truth pT of visible objects that were not reconstructed
   double recx = 0, recy = 0;         // unclustered recoil
@@ -163,7 +171,14 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     }
     P4 meas;
     if (keep) {
-      const double f = r.scale * (1.0 + r.relativeResolution(p.p4.e, pt) * gE);
+      double shift = 0, g = gE;
+      auto grp = ds.group_of.find(p.object_type);
+      if (grp != ds.group_of.end()) {
+        const double rho = ds.groups[grp->second].rho;
+        shift = groupShift[grp->second];
+        g = std::sqrt(rho) * groupCommon[grp->second] + std::sqrt(1 - rho) * gE;
+      }
+      const double f = r.scale * (1.0 + shift) * (1.0 + r.relativeResolution(p.p4.e, pt) * g);
       if (f <= 0) keep = false;
       else {
         meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(p.p4.phi() + r.sigma_phi * gPhi), std::max(0.0, p.p4.m()) * f);
@@ -210,7 +225,9 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   }
   // Missing transverse momentum: everything not measured as objects, with the
   // unclustered recoil measured with scale/resolution and a soft term.
-  const double rs = ds.recoil_scale * (1.0 + ds.recoil_resolution * rng.gauss());
+  double rs = ds.recoil_scale * (1.0 + ds.recoil_resolution * rng.gauss());
+  for (size_t g = 0; g < ds.groups.size(); ++g)
+    if (ds.groups[g].unclustered) rs *= 1.0 + groupShift[g];
   sumEt += std::hypot(recx, recy);
   const double soft = std::sqrt(ds.soft_sigma * ds.soft_sigma + ds.sumet_coeff * ds.sumet_coeff * sumEt);
   const double keepLost = 1.0 - ds.lost_to_met;

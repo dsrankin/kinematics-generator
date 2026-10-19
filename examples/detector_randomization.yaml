@@ -51,6 +51,9 @@ detector:
     types: {jet: {dist: uniform, min: 0.5, max: 1.0}, muon: 0.02}
     pt_min: 30
     pt_scale: {dist: uniform, min: 5, max: 30}
+  correlations:
+    # Per-event jet energy scale shift whose size varies between environments.
+    jes: {types: [jet], scale_sigma: {dist: uniform, min: 0, max: 0.05}, resolution_correlation: {dist: uniform, min: 0, max: 0.8}, unclustered: true}
   met:
     soft_sigma: {dist: uniform, min: 5, max: 25, scope: event}   # varies event by event
     sumet_coeff: {dist: uniform, min: 0.3, max: 0.8}

@@ -70,12 +70,13 @@ struct InitialStateDef {
   SqrtSModel model = SqrtSModel::ExponentialPdf;
   bool rapidity_from_pdf = true;
   RecoilModel recoil = RecoilModel::None;
-  bool emit_recoil = false;          // add the recoil as a visible final-state object
+  bool emit_recoil = false;          // add the recoil jets as visible final-state objects
   std::string recoil_object = "jet";
   int max_attempts = 10000000;
   // parameter indices
   int ebeam = -1, tau = -1, tau_slope = -1, offset = -1, scale = -1, value = -1, min = -1, max = -1;
   int rapidity = -1, recoil_min = -1, recoil_mean = -1, recoil_pt = -1, recoil_rapidity = -1;
+  int recoil_n_jets = -1; // number of recoil (ISR) jets; each draws its own pT, rapidity and azimuth
 };
 
 struct TaskSamplingDef {

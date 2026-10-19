@@ -119,7 +119,7 @@ void parseInitialStateFlags(const YAML::Node &n, InitialStateDef &is) {
       if (r.as<std::string>() != "none") throw std::invalid_argument("initial_state.recoil: expected 'none' or a map");
       is.recoil = RecoilModel::None;
     } else {
-      requireKeys(r, {"model", "min_pt", "mean_pt", "pt", "emit", "object", "rapidity"}, "initial_state.recoil");
+      requireKeys(r, {"model", "min_pt", "mean_pt", "pt", "n_jets", "emit", "object", "rapidity"}, "initial_state.recoil");
       const std::string m = r["model"] ? r["model"].as<std::string>() : "exponential";
       if (m == "none") is.recoil = RecoilModel::None;
       else if (m == "exponential") is.recoil = RecoilModel::Exponential;
@@ -153,6 +153,7 @@ void registerInitialStateParams(const YAML::Node &n, ParamSet &ps) {
   f(r, "min_pt", "recoil_min_pt", 10.0);
   f(r, "mean_pt", "recoil_mean_pt", 15.0);
   f(r, "pt", "recoil_pt", 0.0);
+  f(r, "n_jets", "recoil_n_jets", 1.0);
   if (r && r["rapidity"]) ps.parse(r["rapidity"], "initial_state.recoil_rapidity");
   else if (!r) ps.addFixed("initial_state.recoil_rapidity", 0.0); // unused without a recoil model
   else {
@@ -179,6 +180,7 @@ void bindInitialStateParams(InitialStateDef &is, const ParamSet &ps) {
   is.recoil_mean = ps.at("initial_state.recoil_mean_pt");
   is.recoil_pt = ps.at("initial_state.recoil_pt");
   is.recoil_rapidity = ps.at("initial_state.recoil_rapidity");
+  is.recoil_n_jets = ps.at("initial_state.recoil_n_jets");
 }
 
 void emitInitialStateFlags(YAML::Emitter &out, const InitialStateDef &is) {

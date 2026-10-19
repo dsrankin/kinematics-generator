@@ -52,7 +52,9 @@ production: [t, tbar]
 initial_state:
   sqrt_s: {model: exponential_pdf, ebeam: 6500, tau: 0.05, tau_slope: 0.02}
   rapidity: from_pdf
-  recoil: {model: exponential, min_pt: 10, mean_pt: 25, emit: true, object: jet}
+  # Multi-jet ISR: a Poisson number of jets per event, each with its own pT and
+  # rapidity; the t tbar system recoils against their sum.
+  recoil: {model: exponential, min_pt: 20, mean_pt: 35, n_jets: {dist: poisson, mean: 1.2, scope: event}, emit: true, object: jet}
 
 detector:
   objects:
@@ -86,6 +88,9 @@ detector:
     pt_min: 20
     pt_scale: 10
     eta_max: 2.5
+  correlations:
+    # Jet energy scale shared by light and b jets in each event (and by the unclustered energy).
+    jes: {types: [jet, bjet], scale_sigma: 0.02, resolution_correlation: 0.3, unclustered: true}
   met:
     soft_sigma: 5
     sumet_coeff: 0.5

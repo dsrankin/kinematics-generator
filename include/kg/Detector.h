@@ -39,8 +39,19 @@ struct MetDef {
   int soft_sigma = -1, sumet_coeff = -1, recoil_scale = -1, recoil_resolution = -1, lost_to_met = -1;
 };
 
+// Correlated response of several object types within one event: a common
+// relative scale shift N(0, scale_sigma) and a shared component of the
+// resolution fluctuation, g = sqrt(rho) g_common + sqrt(1 - rho) g_object.
+struct CorrelationDef {
+  std::string name;
+  std::vector<std::string> types;
+  bool unclustered = false; // also shift the unclustered recoil in MET
+  int scale_sigma = -1, resolution_correlation = -1;
+};
+
 struct DetectorPrior {
   ParamSet params;
+  std::vector<CorrelationDef> correlations;
   std::map<std::string, ResponseDef> objects; // may contain "default"
   FakeDef fakes;
   MetDef met;
@@ -65,8 +76,17 @@ struct Response {
   double relativeResolution(double e, double pt) const;
 };
 
+struct CorrelationGroup {
+  std::string name;
+  std::vector<std::string> types;
+  bool unclustered = false;
+  double scale_sigma = 0, rho = 0;
+};
+
 struct DetectorState {
   std::map<std::string, Response> objects;
+  std::vector<CorrelationGroup> groups;
+  std::map<std::string, int> group_of; // object type -> index into groups
   Response fallback; // "default" entry, or a perfect detector
   double fake_rate = 0, fake_pt_min = 20, fake_pt_scale = 10, fake_eta_max = 2.5;
   std::vector<std::string> fake_types;

@@ -159,6 +159,7 @@ void validateTask(const TaskConfig &t) {
     }
     if (!(c.fraction >= 0)) fail("component '" + c.process + "' has a negative fraction");
   }
+  if (is.recoil != RecoilModel::None && !(v[is.recoil_n_jets] >= 0)) fail("initial_state.recoil: n_jets must be >= 0");
   if (is.recoil == RecoilModel::Exponential && !(v[is.recoil_mean] > v[is.recoil_min] && v[is.recoil_min] >= 0))
     fail("initial_state.recoil: requires mean_pt > min_pt >= 0");
 }
