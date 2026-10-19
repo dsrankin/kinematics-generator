@@ -1,0 +1,8 @@
+build/
+compile_commands.json
+*.root
+*_ACLiC_dict_rdict.pcm
+*.so
+*.d
+__pycache__/
+.cache/

@@ -1,0 +1,86 @@
+# nevents 1000000 and outfile test_TbqqTblv.root are run options: pass them to kg-generate (--events/--out)
+# Converted from a legacy process card by kg-convert-card
+name: legacy_card
+production: [A, B]
+initial_state:
+  sqrt_s: {model: exponential_pdf, ebeam: 6500, tau: 0.050000000000000003, tau_slope: 0.02, threshold_offset: 1}
+  rapidity: from_pdf
+  recoil: {model: exponential, min_pt: 10, mean_pt: 15}
+particles:
+  A:
+    pdg: 9999
+    mass: 5.5
+    decays:
+      - {daughters: [q, b, q], model: legacy_sequential}
+  B:
+    pdg: 9998
+    mass: {dist: uniform, min: 165, max: 180, scope: event}
+    decays:
+      - {daughters: [w, b]}
+  C:
+    pdg: 9997
+    mass: 400
+    decays:
+      - {daughters: [D, q]}
+  D:
+    pdg: 9996
+    mass: 350
+    decays:
+      - {daughters: [E, q]}
+  E:
+    pdg: 9995
+    mass: 300
+    decays:
+      - {daughters: [N, q]}
+  W:
+    pdg: 23
+    mass: 80.400000000000006
+    decays:
+      - {daughters: [q, q]}
+  w:
+    pdg: 23
+    mass: 80.400000000000006
+    decays:
+      - {daughters: [l, v]}
+  Z:
+    pdg: 24
+    mass: 91.200000000000003
+    decays:
+      - {daughters: [q, q]}
+  z:
+    pdg: 24
+    mass: 91.200000000000003
+    decays:
+      - {daughters: [l, l]}
+  h:
+    pdg: 25
+    mass: 125
+    decays:
+      - {daughters: [b, b]}
+  T:
+    pdg: 6
+    mass: 172.5
+    decays:
+      - {daughters: [W, b]}
+  t:
+    pdg: 6
+    mass: 172.5
+    decays:
+      - {daughters: [w, b]}
+  b:
+    pdg: 5
+    mass: 4.2000000000000002
+  q:
+    pdg: 1
+    mass: 0
+  l:
+    pdg: 11
+    mass: 0
+  v:
+    pdg: 12
+    mass: 0
+    visible: false
+  N:
+    pdg: 5000
+    mass: 200
+    visible: false

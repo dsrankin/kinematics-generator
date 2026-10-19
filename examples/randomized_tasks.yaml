@@ -1,0 +1,150 @@
+# Randomised-task prior for meta-learning / pretraining.
+#
+# Each task draws: a heavy-resonance mass (log-uniform), daughter masses as
+# fractions of their parents (dependent parameters), widths, the decay mode of
+# the intermediate state (fixed per task), the production topology
+# (single / pair / multiplicity 1-3), whether the task is a single process or
+# a two-process mixture with Dirichlet fractions, a feature schema and a
+# detector environment.
+name: bsm_cascades
+seed: 2026
+bw_cutoff: 50          # truncate Breit-Wigner tails at +-50 widths
+
+parameters:
+  mX: {dist: loguniform, min: 300, max: 3000}
+  rY: {dist: uniform, min: 0.2, max: 0.8}      # m(Y) / m(X)
+  rN: {dist: uniform, min: 0.05, max: 0.9}     # m(N) / m(Y)
+
+particles:
+  X:
+    pdg: 9000001
+    mass: mX
+    width: {dist: loguniform, min: 0.001, max: 0.05, ratio_of: X}   # Gamma/M in [0.1%, 5%]
+    decays:
+      - {daughters: [Y, q], br: 0.7, angular: {type: polynomial, coeffs: [1, 0, {dist: uniform, min: 0, max: 1}]}}
+      - {daughters: [Y, b], br: 0.3}
+  Y:
+    pdg: 9000002
+    mass: "rY * mX"
+    width: "0.01 * Y.mass"
+    decay_choice: task     # each task commits to one Y decay mode (topology prior)
+    decays:
+      - {daughters: [N, l], br: 0.4}
+      - {daughters: [N, q, q], br: 0.4}      # three-body, flat phase space
+      - {daughters: [Z, N], br: 0.2}
+  N:
+    pdg: 9000003
+    mass: {dist: uniform, min: 0.05, max: 0.9, ratio_of: Y}   # same as "rN * Y.mass"
+    visible: false
+  Z:
+    pdg: 23
+    mass: 91.19
+    width: 2.50
+    decays:
+      - {daughters: [l, l], br: 0.1}
+      - {daughters: [q, q], br: 0.7}
+      - {daughters: [v, v], br: 0.2}
+  Zp:
+    pdg: 9000010
+    mass: {dist: uniform, min: 500, max: 4000}
+    width: {dist: uniform, min: 0.01, max: 0.1, ratio_of: Zp}
+    decays:
+      - {daughters: [l, l], br: {dist: uniform, min: 0.1, max: 0.9}}
+      - {daughters: [b, b], br: "1 - Zp.decay0.br"}
+  q: {pdg: 1}
+  b: {pdg: 5, mass: 4.7}
+  l: {pdg: 13}
+  v: {pdg: 14}
+
+processes:
+  - name: XX            # pair production
+    weight: 2
+    production: [X, X]
+  - name: X_multi       # 1-3 X's
+    weight: 1
+    production: [X]
+    multiplicity: {values: [1, 2, 3], weights: [0.5, 0.3, 0.2]}
+  - name: Zp            # s-channel resonance
+    weight: 1
+    production: [Zp]
+    angular: {type: polynomial, coeffs: [1, 0, 1]}   # 1 + cos^2 about the beam
+  - name: XZp_assoc     # associated production with a choice of partner
+    weight: 0.5
+    production: [X, {choice: [Zp, Z], weights: [0.3, 0.7]}]
+
+task:
+  components: {dist: categorical, values: [1, 2], weights: [0.6, 0.4]}
+  fractions: {dirichlet: 2.0}
+  validation: reject     # redraw tasks that violate kinematic thresholds
+  max_attempts: 1000
+
+initial_state:
+  sqrt_s: {model: threshold_exponential, scale: {dist: uniform, min: 50, max: 500}}
+  rapidity: {dist: gaussian, mean: 0, sigma: 1.2, scope: event}
+  recoil: {model: param, pt: {dist: exponential, scale: 30, scope: event}, emit: false}
+
+detector:
+  objects:
+    jet:
+      efficiency: {plateau: {dist: uniform, min: 0.85, max: 1.0}, pt50: 20, width: 5}
+      pt_min: 25
+      eta_max: 4.5
+      resolution: {stochastic: {dist: uniform, min: 0.5, max: 1.2}, constant: 0.05}
+      sigma_eta: 0.02
+      sigma_phi: 0.02
+    bjet:
+      pt_min: 25
+      eta_max: 2.5
+      resolution: {stochastic: 0.8, constant: 0.05}
+      misid: {jet: {dist: uniform, min: 0.15, max: 0.4}}
+    muon:
+      efficiency: {dist: truncated_gaussian, mean: 0.95, sigma: 0.02, min: 0.8, max: 1.0}
+      pt_min: 10
+      eta_max: 2.7
+      resolution: {constant: 0.01, pt_term: 0.0001}
+  fakes:
+    rate: {dist: loguniform, min: 0.01, max: 1.0}
+    types: {jet: 0.95, muon: 0.05}
+  met:
+    soft_sigma: {dist: uniform, min: 2, max: 15}
+    recoil_resolution: 0.15
+
+features:
+  - name: noise
+    kind: gaussian
+    mean: 0
+    sigma: 1
+  - name: noise_uniform
+    kind: uniform
+    min: -1
+    max: 1
+    presence_prob: 0.5           # task-dependent schema
+  - name: pt_proxy
+    kind: truth_proxy
+    quantity: pt
+    rel_sigma: {dist: loguniform, min: 0.01, max: 0.5}
+    fake_policy: observed
+  - name: parent_mass_tag
+    kind: truth_proxy
+    quantity: parent_mass
+    abs_sigma: 20
+    missing_prob: 0.2
+    presence_prob: 0.7
+  - name: btag_score
+    kind: label_correlated
+    label: truth_type
+    applies_to: [jet, bjet]
+    base_mean: 0
+    sigma: 1
+    shift: {dist: gaussian, mean: 0, sigma: 1.5}   # random per task and truth species
+  - name: spurious
+    kind: label_correlated       # correlated with the event's process component only
+    label: component
+    sigma: 1
+    shift: {dist: gaussian, mean: 0, sigma: 2}
+    presence_prob: 0.5
+  - name: jes_monitor
+    kind: environment
+    param: detector.jet.resolution.stochastic
+    coeff: 10
+    sigma: 0.5

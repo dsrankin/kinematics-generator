@@ -1,0 +1,92 @@
+# Fixed-process generation: pp -> t tbar with physical widths and W branching
+# fractions. Nothing is randomised at task level, so every task sampled from
+# this prior is the same physics task (only seeds differ).
+name: ttbar_fixed
+seed: 42
+
+particles:
+  t:
+    pdg: 6
+    charge: 0.6667
+    mass: 172.5
+    width: 1.42
+    decays:
+      - {daughters: [W+, b], br: 1.0}
+  tbar:
+    pdg: -6
+    charge: -0.6667
+    mass: 172.5
+    width: 1.42
+    decays:
+      - {daughters: [W-, bbar], br: 1.0}
+  W+:
+    pdg: 24
+    mass: 80.4
+    width: 2.09
+    decays:
+      # Leptonic decay with a (1 + cos)^2 helicity distribution for the lepton,
+      # hadronic decay isotropic.
+      - {daughters: [e+, ve], br: 0.108, angular: {type: polynomial, coeffs: [1, 2, 1]}}
+      - {daughters: [mu+, vm], br: 0.108, angular: {type: polynomial, coeffs: [1, 2, 1]}}
+      - {daughters: [q, q], br: 0.784}
+  W-:
+    pdg: -24
+    mass: 80.4
+    width: 2.09
+    decays:
+      - {daughters: [e-, ve], br: 0.108, angular: {type: polynomial, coeffs: [1, -2, 1]}}
+      - {daughters: [mu-, vm], br: 0.108, angular: {type: polynomial, coeffs: [1, -2, 1]}}
+      - {daughters: [q, q], br: 0.784}
+  b:    {pdg: 5, mass: 4.7}
+  bbar: {pdg: -5, mass: 4.7}
+  q:    {pdg: 1}
+  e+:   {pdg: -11, charge: 1}
+  e-:   {pdg: 11, charge: -1}
+  mu+:  {pdg: -13, charge: 1}
+  mu-:  {pdg: 13, charge: -1}
+  ve:   {pdg: 12}
+  vm:   {pdg: 14}
+
+production: [t, tbar]
+
+initial_state:
+  sqrt_s: {model: exponential_pdf, ebeam: 6500, tau: 0.05, tau_slope: 0.02}
+  rapidity: from_pdf
+  recoil: {model: exponential, min_pt: 10, mean_pt: 25, emit: true, object: jet}
+
+detector:
+  objects:
+    jet:
+      efficiency: {plateau: 0.95, pt50: 20, width: 4}
+      pt_min: 20
+      eta_max: 4.5
+      resolution: {stochastic: 0.8, constant: 0.05}
+      sigma_eta: 0.02
+      sigma_phi: 0.02
+    bjet:
+      efficiency: {plateau: 0.95, pt50: 20, width: 4}
+      pt_min: 20
+      eta_max: 2.5
+      resolution: {stochastic: 0.8, constant: 0.05}
+      misid: {jet: 0.3}          # b-tagging inefficiency
+    electron:
+      efficiency: 0.9
+      pt_min: 10
+      eta_max: 2.47
+      resolution: {stochastic: 0.1, constant: 0.01}
+      misid: {jet: 0.02}
+    muon:
+      efficiency: 0.95
+      pt_min: 10
+      eta_max: 2.7
+      resolution: {constant: 0.01, pt_term: 0.0001}
+  fakes:
+    rate: 0.3
+    types: {jet: 0.9, electron: 0.05, muon: 0.05}
+    pt_min: 20
+    pt_scale: 10
+    eta_max: 2.5
+  met:
+    soft_sigma: 5
+    sumet_coeff: 0.5
+    recoil_resolution: 0.1
