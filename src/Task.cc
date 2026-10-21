@@ -233,8 +233,11 @@ TaskConfig sampleTask(const PriorConfig &prior, uint64_t master_seed, int64_t in
         fail("task.components=" + std::to_string(n) + " exceeds the number of distinct processes");
       std::vector<double> pw;
       for (const auto &pr : prior.processes) pw.push_back(pr.weight);
+      // A fixed fraction list that covers every process refers to the processes in
+      // catalogue order; otherwise components are drawn by process weight.
+      const bool catalogueOrder = prior.task.fractions == "fixed" && n == static_cast<int>(prior.processes.size());
       for (int c = 0; c < n; ++c) {
-        const size_t ip = rng.categorical(pw);
+        const size_t ip = catalogueOrder ? static_cast<size_t>(c) : rng.categorical(pw);
         if (prior.task.distinct_processes) pw[ip] = 0;
         const ProcessDef &pr = prior.processes[ip];
         TaskComponent comp;

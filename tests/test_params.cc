@@ -178,4 +178,10 @@ TEST(dirichlet_and_fixed_fractions) {
   for (int i = 0; i < n; ++i) n0 += generateTruthEvent(t, i).component == 0;
   CHECK_CLOSE(double(n0) / n, 0.75, 4 * std::sqrt(0.75 * 0.25 / n));
   CHECK_THROWS_AS(mk("task: {components: 3}\n"), std::invalid_argument, "exceeds");
+  // A full fixed list follows catalogue order in every task.
+  for (int i = 0; i < 20; ++i) {
+    const TaskConfig u = sampleTask(fixed, 1, i);
+    CHECK(u.components[0].process == "a" && u.components[1].process == "b");
+    CHECK_CLOSE(u.components[1].fraction, 0.25, 1e-12);
+  }
 }

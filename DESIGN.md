@@ -158,7 +158,8 @@ Task assembly:
 ```yaml
 task:
   components: {dist: categorical, values: [1, 2]}   # processes per task (event label = component)
-  fractions: {dirichlet: 1.0}                        # or equal, or [0.7, 0.3]
+  fractions: {dirichlet: 1.0}                        # or equal, or [0.7, 0.3] (a list covering every
+                                                     # process applies in catalogue order)
   distinct_processes: true
   validation: reject                                 # or error
   max_attempts: 1000
