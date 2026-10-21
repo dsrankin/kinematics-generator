@@ -68,6 +68,9 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   py::array_t<int32_t> type(shape{sn, sm}), truth(shape{sn, sm}), label(shape{sn}), nobj(shape{sn});
   py::array_t<bool> mask(shape{sn, sm}), fake(shape{sn, sm});
   py::array_t<uint64_t> index(shape{sn});
+  // Truth summaries (targets for supervised pretraining; never model inputs by default).
+  py::array_t<float> tmet(shape{sn, 2}), sqrts(shape{sn}), mprod(shape{sn});
+  py::array_t<int32_t> nvis(shape{sn}), ninv(shape{sn});
   auto P = p4.mutable_unchecked<3>();
   auto K = kin.mutable_unchecked<3>();
   auto Fe = feat.mutable_unchecked<3>();
@@ -79,11 +82,30 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   auto L = label.mutable_unchecked<1>();
   auto N = nobj.mutable_unchecked<1>();
   auto I = index.mutable_unchecked<1>();
+  auto TM = tmet.mutable_unchecked<2>();
+  auto SQ = sqrts.mutable_unchecked<1>();
+  auto MP = mprod.mutable_unchecked<1>();
+  auto NV = nvis.mutable_unchecked<1>();
+  auto NI = ninv.mutable_unchecked<1>();
   for (py::ssize_t i = 0; i < sn; ++i) {
     const ObservedEvent &o = evs[i].observed;
     L(i) = o.component;
     N(i) = static_cast<int32_t>(o.objects.size());
     I(i) = o.event_index;
+    const TruthEvent &tr = evs[i].truth;
+    const auto tm = tr.trueMET();
+    TM(i, 0) = static_cast<float>(tm.first);
+    TM(i, 1) = static_cast<float>(tm.second);
+    SQ(i) = static_cast<float>(tr.sqrt_s_hat);
+    double mmax = 0;
+    int nv = 0, ni = 0;
+    for (const auto &p : tr.particles) {
+      if (p.species >= 0 && p.parent < 0) mmax = std::max(mmax, p.mass);
+      if (p.isFinal()) (p.object_type == "invisible" ? ni : nv)++;
+    }
+    MP(i) = static_cast<float>(mmax);
+    NV(i) = nv;
+    NI(i) = ni;
     Me(i, 0) = static_cast<float>(o.met_x);
     Me(i, 1) = static_cast<float>(o.met_y);
     for (py::ssize_t j = 0; j < sm; ++j) {
@@ -124,6 +146,11 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   d["label"] = label;
   d["n_objects"] = nobj; // before any max_objects truncation
   d["event_index"] = index;
+  d["truth_met"] = tmet;
+  d["sqrt_s_hat"] = sqrts;
+  d["max_produced_mass"] = mprod;
+  d["n_visible_truth"] = nvis;
+  d["n_invisible_truth"] = ninv;
   d["feature_names"] = *task.feature_names;
   d["object_types"] = task.object_types;
   if (include_truth) {

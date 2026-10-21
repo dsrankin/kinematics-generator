@@ -6,3 +6,4 @@ compile_commands.json
 *.d
 __pycache__/
 .cache/
+build-*/

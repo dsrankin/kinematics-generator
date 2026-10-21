@@ -37,6 +37,13 @@ def test_streaming_and_batches():
     k = b1["n_objects"].max()
     assert np.array_equal(b1["p4"], b2["p4"][1000:1100, :k])
     assert b1["event_index"][0] == 1000
+    # Truth summaries agree with the truth record.
+    tr = kinegen.generate_truth(task, 1000)
+    inv = [p for p in tr.particles if p.status == "final" and p.object_type == "invisible"]
+    assert b1["n_invisible_truth"][0] == len(inv)
+    assert np.isclose(b1["truth_met"][0, 0], sum(p.p4[0] for p in inv), atol=1e-3)
+    assert np.isclose(b1["sqrt_s_hat"][0], tr.sqrt_s_hat, rtol=1e-6)
+    assert b1["max_produced_mass"][0] == np.float32(max(p.mass for p in tr.particles if p.parent < 0 and p.name != "parton" and p.name != "recoil"))
     # Truncation keeps the leading objects; n_objects keeps the full count.
     t = kinegen.generate_batch(task, 50, max_objects=2)
     assert t["p4"].shape[1] == 2
