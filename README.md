@@ -23,6 +23,16 @@ Everything runs in memory (C++ or Python); ROOT and YAML output are optional.
 See [DESIGN.md](DESIGN.md) for the API, data flow and full configuration
 schema.
 
+### Install the Python module (any machine)
+
+```
+pip install "git+https://github.com/dsrankin/kinematics-generator@foundation-model-generator"
+# or, from a checkout:  pip install ./kinematics-generator
+```
+
+This compiles the extension for the Python running `pip` (needs a C++17 compiler, git and network
+access for yaml-cpp/pybind11; CMake is fetched from PyPI if the system one is missing or too old).
+
 ### Build
 
 Requirements: a C++17 compiler and CMake ≥ 3.16. yaml-cpp and pybind11 are used

@@ -194,6 +194,9 @@ SplitSpec makeSplit(const std::string &by, py::object fractions, uint64_t salt, 
 
 PYBIND11_MODULE(kinegen, m) {
   m.doc() = "Prior -> Task -> Truth -> Observed collider event generator";
+#ifdef KG_VERSION
+  m.attr("__version__") = KG_VERSION;
+#endif
 
   py::register_exception<InvalidTask>(m, "InvalidTask", PyExc_RuntimeError);
 

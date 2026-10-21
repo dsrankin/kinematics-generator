@@ -14,6 +14,7 @@ endif()
 option(KG_BUILD_TESTS "Build unit tests" ON)
 option(KG_BUILD_PYTHON "Build pybind11 Python bindings" OFF)
 option(KG_BUILD_EXAMPLES "Build C++ examples" ON)
+option(KG_BUILD_TOOLS "Build command-line tools" ON)
 set(KG_WITH_ROOT "AUTO" CACHE STRING "ROOT output support: AUTO, ON or OFF")
 
 include(FetchContent)
@@ -80,6 +81,7 @@ if(NOT KG_WITH_ROOT STREQUAL "OFF")
 endif()
 
 # --- command-line tools --------------------------------------------------------
+if(KG_BUILD_TOOLS)
 add_executable(kg-convert-card tools/kg_convert_card.cc)
 target_link_libraries(kg-convert-card PRIVATE kinegen)
 add_executable(kg-generate tools/kg_generate.cc)
@@ -87,6 +89,7 @@ target_link_libraries(kg-generate PRIVATE kinegen)
 if(KG_HAVE_ROOT)
   target_link_libraries(kg-generate PRIVATE kinegen_root)
   target_compile_definitions(kg-generate PRIVATE KG_HAVE_ROOT=1)
+endif()
 endif()
 
 # --- examples --------------------------------------------------------------------
@@ -138,6 +141,10 @@ if(KG_BUILD_PYTHON)
   pybind11_add_module(kinegen_py python/bindings.cc)
   set_target_properties(kinegen_py PROPERTIES OUTPUT_NAME kinegen)
   target_link_libraries(kinegen_py PRIVATE kinegen)
+  target_compile_definitions(kinegen_py PRIVATE KG_VERSION="${PROJECT_VERSION}")
+  if(SKBUILD)  # pip install: place the module at the top level of the wheel
+    install(TARGETS kinegen_py LIBRARY DESTINATION .)
+  endif()
   if(KG_BUILD_TESTS)
     add_test(NAME python_tests
       COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_python.py

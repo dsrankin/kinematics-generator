@@ -1,0 +1,24 @@
+[build-system]
+requires = ["scikit-build-core>=0.8", "pybind11>=2.11"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "kinegen"
+version = "0.2.0"
+description = "Lightweight collider kinematics generator: Prior -> Task -> Truth -> Observed events (Python bindings)"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+cmake.version = ">=3.16"
+build-dir = "build/{wheel_tag}"
+wheel.packages = []
+wheel.license-files = []
+
+[tool.scikit-build.cmake.define]
+KG_BUILD_PYTHON = "ON"
+KG_BUILD_TESTS = "OFF"
+KG_BUILD_EXAMPLES = "OFF"
+KG_WITH_ROOT = "OFF"
+KG_BUILD_TOOLS = "OFF"
