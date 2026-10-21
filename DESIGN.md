@@ -150,8 +150,19 @@ processes:
   - {name: assoc, production: [X, {choice: [Zp, Z], weights: [1, 3]}]}
   - {name: multi, production: [X], multiplicity: {values: [1, 2, 3], weights: [5, 3, 2]}}
   - {name: res, production: [Zp], angular: {type: polynomial, coeffs: [1, 0, 1]}}
+  - name: W                                   # per-event subprocesses: hard extra partons
+    subprocesses:
+      - {production: [W], weight: 0.6}
+      - {production: [W, q], weight: 0.3, angular: {type: polynomial, coeffs: [1, 0, 2]}}
+      - {production: [W, q, q], weight: 0.1}
 production: [A, B]     # shorthand for a single process
 ```
+
+`subprocesses` lists production alternatives of one process, chosen event by event with the given
+(task-level parameter) weights; `TruthEvent::subprocess` records the choice. They model matched
+multi-jet samples (V + 0/1/2 jets, tt̄ + 0/1 jet) with the extra partons produced in the hard
+process (two- or three-body phase space above `threshold_offset`), unlike the soft independent recoil
+jets. The process (and hence the pretraining family label) is the same for all alternatives.
 
 Task assembly:
 
@@ -170,6 +181,7 @@ Initial state (`initial_state.*` parameters):
 ```yaml
 initial_state:
   sqrt_s: {model: exponential_pdf, ebeam: 6500, tau: 0.05, tau_slope: 0.02, threshold_offset: 0}
+  #        pdf: effective parton densities f(x) ~ x^-a (1-x)^b, parameters a, b (see below)
   #        threshold_exponential: sqrt_s = threshold + Exp(scale)
   #        fixed: value ;  uniform: min, max
   rapidity: from_pdf              # or any parameter, e.g. {dist: gaussian, mean: 0, sigma: 1, scope: event}
@@ -178,7 +190,11 @@ initial_state:
   #        n_jets: e.g. {dist: poisson, mean: 1.5, scope: event} for multi-jet ISR
 ```
 
-`exponential_pdf` is the legacy luminosity model: x₁, x₂ ~ Exp(τ) on (0, 1] with
+`pdf` is the more realistic luminosity model: both beams carry partons with density
+f(x) = x^(−a) (1 − x)^b, so dL/dln τ dy ∝ τ^(1−a) (1 − x₁)^b (1 − x₂)^b with τ = x₁x₂ = ŝ/s and
+y = ½ ln(x₁/x₂). ln τ is drawn exactly above the threshold from the tabulated marginal (inverse CDF,
+efficient for any mass) and y from its conditional density, which also gives single resonances a
+mass-dependent rapidity distribution. `exponential_pdf` is the legacy luminosity model: x₁, x₂ ~ Exp(τ) on (0, 1] with
 τ = tau + tau_slope·threshold/TeV, accepted when √ŝ ≥ Σm + threshold_offset. For a single resonance
 the rapidity is drawn from the same density conditional on x₁x₂ = m²/s.
 

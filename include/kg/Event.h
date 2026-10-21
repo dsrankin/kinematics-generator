@@ -46,6 +46,7 @@ struct TruthEvent {
   uint64_t event_index = 0;
   uint64_t seed = 0; // event seed (derived from task seed and event index)
   int component = 0; // index of the task component (process) this event belongs to
+  int subprocess = 0; // index of the production alternative within the component
   std::string process;
   double sqrt_s_hat = 0;
   double x1 = 0, x2 = 0;

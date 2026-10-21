@@ -45,11 +45,22 @@ struct TaskParticle {
   int fixed_mode = -1;            // >= 0 when the decay mode is fixed for the task
 };
 
+struct TaskSubprocess {
+  std::vector<int> produced; // species indices (1-3)
+  double weight = 1;         // relative per-event probability within the component
+  AngularModel angular;      // production angle in the hard-system rest frame
+};
+
 struct TaskComponent {
   std::string process;
-  std::vector<int> produced; // species indices (1-3)
   double fraction = 1;
-  AngularModel angular; // production angle in the hard-system rest frame
+  std::vector<TaskSubprocess> subprocesses; // >= 1
+
+  std::vector<double> weights() const {
+    std::vector<double> w;
+    for (const auto &s : subprocesses) w.push_back(s.weight);
+    return w;
+  }
 };
 
 struct TaskConfig {

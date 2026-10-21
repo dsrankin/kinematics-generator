@@ -239,10 +239,18 @@ PYBIND11_MODULE(kinegen, m) {
         py::list out;
         for (const auto &c : t.components) {
           py::dict d;
-          std::vector<std::string> prod;
-          for (int s : c.produced) prod.push_back(t.particles[s].name);
+          py::list subs;
+          for (const auto &sp : c.subprocesses) {
+            std::vector<std::string> prod;
+            for (int s : sp.produced) prod.push_back(t.particles[s].name);
+            py::dict sd;
+            sd["produced"] = prod;
+            sd["weight"] = sp.weight;
+            subs.append(sd);
+          }
           d["process"] = c.process;
-          d["produced"] = prod;
+          d["produced"] = subs[0]["produced"];
+          d["subprocesses"] = subs;
           d["fraction"] = c.fraction;
           out.append(d);
         }
@@ -275,6 +283,7 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("event_index", &TruthEvent::event_index)
       .def_readonly("seed", &TruthEvent::seed)
       .def_readonly("component", &TruthEvent::component)
+      .def_readonly("subprocess", &TruthEvent::subprocess)
       .def_readonly("process", &TruthEvent::process)
       .def_readonly("sqrt_s_hat", &TruthEvent::sqrt_s_hat)
       .def_readonly("particles", &TruthEvent::particles)

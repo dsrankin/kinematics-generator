@@ -106,14 +106,30 @@ std::string taskToYAML(const TaskConfig &t) {
   out << YAML::EndSeq;
   out << YAML::Key << "components" << YAML::Value << YAML::BeginSeq;
   for (const auto &c : t.components) {
-    std::vector<std::string> d;
-    for (int s : c.produced) d.push_back(t.particles[s].name);
+    auto names = [&](const TaskSubprocess &sp) {
+      std::vector<std::string> d;
+      for (int s : sp.produced) d.push_back(t.particles[s].name);
+      return d;
+    };
     out << YAML::BeginMap;
     out << YAML::Key << "process" << YAML::Value << c.process;
-    out << YAML::Key << "produced" << YAML::Value << YAML::Flow << d;
     out << YAML::Key << "fraction" << YAML::Value << c.fraction;
-    out << YAML::Key << "angular" << YAML::Value;
-    emitAngular(out, c.angular);
+    if (c.subprocesses.size() == 1) {  // compact form (identical to the format before subprocesses)
+      out << YAML::Key << "produced" << YAML::Value << YAML::Flow << names(c.subprocesses[0]);
+      out << YAML::Key << "angular" << YAML::Value;
+      emitAngular(out, c.subprocesses[0].angular);
+    } else {
+      out << YAML::Key << "subprocesses" << YAML::Value << YAML::BeginSeq;
+      for (const auto &sp : c.subprocesses) {
+        out << YAML::Flow << YAML::BeginMap;
+        out << YAML::Key << "produced" << YAML::Value << YAML::Flow << names(sp);
+        out << YAML::Key << "weight" << YAML::Value << sp.weight;
+        out << YAML::Key << "angular" << YAML::Value;
+        emitAngular(out, sp.angular);
+        out << YAML::EndMap;
+      }
+      out << YAML::EndSeq;
+    }
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
@@ -172,14 +188,23 @@ TaskConfig taskFromYAML(const std::string &yaml) {
   for (const auto &cn : n["components"]) {
     TaskComponent c;
     c.process = cn["process"].as<std::string>();
-    for (const auto &d : cn["produced"]) c.produced.push_back(t.species(d.as<std::string>()));
     c.fraction = cn["fraction"].as<double>();
-    c.angular = parseAngular(cn["angular"]);
+    auto parseSub = [&](const YAML::Node &sn) {
+      TaskSubprocess sp;
+      for (const auto &d : sn["produced"]) sp.produced.push_back(t.species(d.as<std::string>()));
+      sp.angular = parseAngular(sn["angular"]);
+      if (sn["weight"]) sp.weight = sn["weight"].as<double>();
+      return sp;
+    };
+    if (cn["subprocesses"])
+      for (const auto &sn : cn["subprocesses"]) c.subprocesses.push_back(parseSub(sn));
+    else
+      c.subprocesses.push_back(parseSub(cn));
     t.components.push_back(std::move(c));
   }
   const YAML::Node is = n["initial_state"];
   const std::string model = is["sqrt_s_model"].as<std::string>();
-  for (SqrtSModel m : {SqrtSModel::ExponentialPdf, SqrtSModel::ThresholdExponential, SqrtSModel::Fixed, SqrtSModel::Uniform})
+  for (SqrtSModel m : {SqrtSModel::ExponentialPdf, SqrtSModel::ThresholdExponential, SqrtSModel::Fixed, SqrtSModel::Uniform, SqrtSModel::Pdf})
     if (sqrtSModelName(m) == model) t.initial.model = m;
   t.initial.rapidity_from_pdf = is["rapidity_from_pdf"].as<bool>();
   const std::string rec = is["recoil_model"].as<std::string>();
@@ -226,6 +251,7 @@ std::string truthEventToYAML(const TruthEvent &ev) {
   out << YAML::Key << "event_index" << YAML::Value << ev.event_index;
   out << YAML::Key << "seed" << YAML::Value << ev.seed;
   out << YAML::Key << "component" << YAML::Value << ev.component;
+  if (ev.subprocess) out << YAML::Key << "subprocess" << YAML::Value << ev.subprocess;
   out << YAML::Key << "process" << YAML::Value << ev.process;
   out << YAML::Key << "sqrt_s_hat" << YAML::Value << ev.sqrt_s_hat;
   out << YAML::Key << "x1" << YAML::Value << ev.x1;
@@ -266,6 +292,7 @@ TruthEvent truthEventFromYAML(const std::string &yaml) {
   ev.event_index = n["event_index"].as<uint64_t>();
   ev.seed = n["seed"].as<uint64_t>();
   ev.component = n["component"].as<int>();
+  if (n["subprocess"]) ev.subprocess = n["subprocess"].as<int>();
   ev.process = n["process"].as<std::string>();
   ev.sqrt_s_hat = n["sqrt_s_hat"].as<double>();
   ev.x1 = n["x1"].as<double>();

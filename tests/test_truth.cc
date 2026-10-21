@@ -149,7 +149,7 @@ processes:
   std::set<size_t> produced, final;
   for (int it = 0; it < 30; ++it) {
     const TaskConfig t = sampleTask(p, 4, it);
-    produced.insert(t.components[0].produced.size());
+    produced.insert(t.components[0].subprocesses[0].produced.size());
     for (int i = 0; i < 50; ++i) {
       const TruthEvent ev = generateTruthEvent(t, i);
       checkEvent(ev);
@@ -170,7 +170,7 @@ production: )") + prod + R"(
 initial_state: {sqrt_s: {model: threshold_exponential, scale: 100, threshold_offset: 0}, rapidity: {dist: gaussian, mean: 0, sigma: 1, scope: event}}
 )");
     const TaskConfig t = sampleTask(p, 2, 0);
-    const size_t n = t.components[0].produced.size();
+    const size_t n = t.components[0].subprocesses[0].produced.size();
     for (int i = 0; i < 300; ++i) {
       const TruthEvent ev = generateTruthEvent(t, i);
       checkEvent(ev);

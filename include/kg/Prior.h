@@ -53,16 +53,22 @@ struct SlotDef {
   std::vector<double> weights;      // empty = equal
 };
 
-struct ProcessDef {
-  std::string name;
-  double weight = 1;
+// One production alternative of a process (e.g. W, W + q, W + q q).
+struct SubprocessDef {
   std::vector<SlotDef> slots;
   std::vector<int> multiplicity;              // optional: number of copies of the single slot
   std::vector<double> multiplicity_weights;
   AngularDef angular;                         // production angle (axis defaults to beam)
+  int weight = -1;                            // parameter index of the per-event weight (-1: weight 1)
 };
 
-enum class SqrtSModel { ExponentialPdf, ThresholdExponential, Fixed, Uniform };
+struct ProcessDef {
+  std::string name;
+  double weight = 1;                          // task-level sampling weight of the process
+  std::vector<SubprocessDef> subprocesses;    // >= 1; chosen per event by weight
+};
+
+enum class SqrtSModel { ExponentialPdf, ThresholdExponential, Fixed, Uniform, Pdf };
 enum class RecoilModel { None, Exponential, Param };
 
 // Parton-level initial state. All numeric fields are parameters named
@@ -77,6 +83,7 @@ struct InitialStateDef {
   // parameter indices
   int ebeam = -1, tau = -1, tau_slope = -1, offset = -1, scale = -1, value = -1, min = -1, max = -1;
   int rapidity = -1, recoil_min = -1, recoil_mean = -1, recoil_pt = -1, recoil_rapidity = -1;
+  int pdf_a = -1, pdf_b = -1; // pdf model: effective parton density f(x) ~ x^-a (1-x)^b
   int recoil_n_jets = -1; // number of recoil (ISR) jets; each draws its own pT, rapidity and azimuth
 };
 

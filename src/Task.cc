@@ -47,7 +47,13 @@ std::string TaskConfig::topology() const {
   for (size_t c = 0; c < components.size(); ++c) {
     if (c) out += " ; ";
     out += components[c].process + ": ";
-    for (size_t i = 0; i < components[c].produced.size(); ++i) out += (i ? " + " : "") + sig(components[c].produced[i]);
+    const auto &subs = components[c].subprocesses;
+    if (subs.size() > 1) out += "{";
+    for (size_t k = 0; k < subs.size(); ++k) {
+      if (k) out += " | ";
+      for (size_t i = 0; i < subs[k].produced.size(); ++i) out += (i ? " + " : "") + sig(subs[k].produced[i]);
+    }
+    if (subs.size() > 1) out += "}";
   }
   return out;
 }
@@ -117,7 +123,8 @@ void validateTask(const TaskConfig &t) {
       for (int d : m.daughters) walk(d);
   };
   for (const auto &c : t.components)
-    for (int s : c.produced) walk(s);
+    for (const auto &sp : c.subprocesses)
+      for (int s : sp.produced) walk(s);
   for (int s : reach) {
     const TaskParticle &p = t.particles[s];
     if (!(t.mass(s) >= 0)) fail("particle '" + p.name + "' has negative mass " + num(t.mass(s)));
@@ -136,26 +143,40 @@ void validateTask(const TaskConfig &t) {
   const auto &v = t.values;
   const InitialStateDef &is = t.initial;
   for (const auto &c : t.components) {
-    if (c.produced.empty() || c.produced.size() > 3) fail("component '" + c.process + "' must produce 1-3 particles");
+    double wsum = 0;
+    for (const auto &sp : c.subprocesses) {
+      if (!(sp.weight >= 0)) fail("component '" + c.process + "': negative subprocess weight");
+      wsum += sp.weight;
+    }
+    if (c.subprocesses.empty() || !(wsum > 0)) fail("component '" + c.process + "': subprocess weights must have a positive sum");
+    for (const auto &sp : c.subprocesses) {
+    if (sp.produced.empty() || sp.produced.size() > 3) fail("component '" + c.process + "' must produce 1-3 particles");
     double thr = 0;
-    for (int s : c.produced) thr += memo[s];
-    if (c.produced.size() > 1) thr += v[is.offset];
+    for (int s : sp.produced) thr += memo[s];
+    if (sp.produced.size() > 1) thr += v[is.offset];
     switch (is.model) {
       case SqrtSModel::ExponentialPdf:
         if (!(v[is.ebeam] > 0) || !(v[is.tau] > 0)) fail("initial_state: ebeam and tau must be > 0");
+        if (thr >= 2 * v[is.ebeam]) fail("process '" + c.process + "': threshold " + num(thr) + " exceeds the collider energy");
+        break;
+      case SqrtSModel::Pdf:
+        if (!(v[is.ebeam] > 0)) fail("initial_state: ebeam must be > 0");
+        if (is.pdf_a < 0 || is.pdf_b < 0) fail("initial_state: pdf model needs parameters a and b");
+        if (!std::isfinite(v[is.pdf_a]) || !(v[is.pdf_b] >= 0)) fail("initial_state: pdf requires finite a and b >= 0");
         if (thr >= 2 * v[is.ebeam]) fail("process '" + c.process + "': threshold " + num(thr) + " exceeds the collider energy");
         break;
       case SqrtSModel::ThresholdExponential:
         if (!(v[is.scale] > 0)) fail("initial_state: scale must be > 0");
         break;
       case SqrtSModel::Fixed:
-        if (c.produced.size() > 1 && v[is.value] < thr)
+        if (sp.produced.size() > 1 && v[is.value] < thr)
           fail("process '" + c.process + "': fixed sqrt(s)=" + num(v[is.value]) + " below threshold " + num(thr));
         break;
       case SqrtSModel::Uniform:
-        if (c.produced.size() > 1 && v[is.max] < thr)
+        if (sp.produced.size() > 1 && v[is.max] < thr)
           fail("process '" + c.process + "': sqrt(s) range max " + num(v[is.max]) + " below threshold " + num(thr));
         break;
+    }
     }
     if (!(c.fraction >= 0)) fail("component '" + c.process + "' has a negative fraction");
   }
@@ -243,21 +264,27 @@ TaskConfig sampleTask(const PriorConfig &prior, uint64_t master_seed, int64_t in
         const ProcessDef &pr = prior.processes[ip];
         TaskComponent comp;
         comp.process = pr.name;
-        std::vector<const SlotDef *> slots;
-        if (pr.multiplicity.empty()) {
-          for (const auto &s : pr.slots) slots.push_back(&s);
-        } else {
-          const int k = pr.multiplicity_weights.empty() ? pr.multiplicity[static_cast<size_t>(rng.uniform() * pr.multiplicity.size()) % pr.multiplicity.size()]
-                                                        : pr.multiplicity[rng.categorical(pr.multiplicity_weights)];
-          for (int j = 0; j < k; ++j) slots.push_back(&pr.slots[0]);
+        for (const SubprocessDef &spd : pr.subprocesses) {
+          TaskSubprocess sp;
+          std::vector<const SlotDef *> slots;
+          if (spd.multiplicity.empty()) {
+            for (const auto &s : spd.slots) slots.push_back(&s);
+          } else {
+            const int k = spd.multiplicity_weights.empty()
+                              ? spd.multiplicity[static_cast<size_t>(rng.uniform() * spd.multiplicity.size()) % spd.multiplicity.size()]
+                              : spd.multiplicity[rng.categorical(spd.multiplicity_weights)];
+            for (int j = 0; j < k; ++j) slots.push_back(&spd.slots[0]);
+          }
+          for (const SlotDef *s : slots) {
+            size_t ic = 0;
+            if (s->choices.size() > 1)
+              ic = s->weights.empty() ? static_cast<size_t>(rng.uniform() * s->choices.size()) % s->choices.size() : rng.categorical(s->weights);
+            sp.produced.push_back(prior.particle_index.at(s->choices[ic]));
+          }
+          sp.angular = resolveAngular(spd.angular, v, "process '" + pr.name + "'");
+          sp.weight = spd.weight >= 0 ? v[spd.weight] : 1.0;
+          comp.subprocesses.push_back(std::move(sp));
         }
-        for (const SlotDef *s : slots) {
-          size_t ic = 0;
-          if (s->choices.size() > 1)
-            ic = s->weights.empty() ? static_cast<size_t>(rng.uniform() * s->choices.size()) % s->choices.size() : rng.categorical(s->weights);
-          comp.produced.push_back(prior.particle_index.at(s->choices[ic]));
-        }
-        comp.angular = resolveAngular(pr.angular, v, "process '" + pr.name + "'");
         t.components.push_back(std::move(comp));
       }
       // Mixture fractions.

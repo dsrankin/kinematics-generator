@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <map>
 #include <sstream>
 
 #include "kg/Generator.h"
@@ -99,6 +100,76 @@ double bwUpper(const TaskConfig &t, int s, const std::vector<double> &v) {
   return (G > 0 && t.bw_cutoff > 0) ? M + t.bw_cutoff * G : (G > 0 ? std::numeric_limits<double>::infinity() : M);
 }
 
+// ---------------------------------------------------------------------------
+// PDF-like parton luminosity: f(x) = x^-a (1-x)^b for both beams.
+// With tau = x1 x2 and y = ln(x1/x2)/2, x1 = sqrt(tau) e^y, x2 = sqrt(tau) e^-y and
+//   dL/dln(tau) dy ~ tau^(1-a) (1 - x1)^b (1 - x2)^b,
+// so ln(tau) is drawn from the tabulated marginal by inverse CDF (exact above any
+// threshold) and y from its conditional density by rejection (maximum at y = 0).
+struct LumiTable {
+  std::vector<double> lnTau, cdf;
+};
+
+const LumiTable &lumiTable(double a, double b) {
+  thread_local std::map<std::pair<double, double>, LumiTable> cache;
+  auto it = cache.find({a, b});
+  if (it != cache.end()) return it->second;
+  LumiTable tab;
+  const int n = 800, ny = 160;
+  const double lo = std::log(1e-10);
+  std::vector<double> dens(n);
+  for (int i = 0; i < n; ++i) {
+    const double lt = lo + (0.0 - lo) * i / (n - 1);
+    const double r = std::exp(0.5 * lt), ymax = -0.5 * lt;
+    double integral = 0;
+    for (int j = 0; j <= ny; ++j) {  // trapezoid in y over [-ymax, ymax]
+      const double yy = -ymax + 2 * ymax * j / ny;
+      const double g = std::pow(std::max(0.0, 1 - r * std::exp(yy)), b) * std::pow(std::max(0.0, 1 - r * std::exp(-yy)), b);
+      integral += (j == 0 || j == ny ? 0.5 : 1.0) * g;
+    }
+    integral *= 2 * ymax / ny;
+    tab.lnTau.push_back(lt);
+    dens[i] = std::exp((1 - a) * lt) * integral;
+  }
+  tab.cdf.assign(n, 0.0);
+  for (int i = 1; i < n; ++i)
+    tab.cdf[i] = tab.cdf[i - 1] + 0.5 * (dens[i] + dens[i - 1]) * (tab.lnTau[i] - tab.lnTau[i - 1]);
+  return cache.emplace(std::make_pair(a, b), std::move(tab)).first->second;
+}
+
+double interpCdf(const LumiTable &t, double lt) {
+  if (lt <= t.lnTau.front()) return 0.0;
+  const size_t i = std::upper_bound(t.lnTau.begin(), t.lnTau.end(), lt) - t.lnTau.begin();
+  if (i >= t.lnTau.size()) return t.cdf.back();
+  const double f = (lt - t.lnTau[i - 1]) / (t.lnTau[i] - t.lnTau[i - 1]);
+  return t.cdf[i - 1] + f * (t.cdf[i] - t.cdf[i - 1]);
+}
+
+// ln(tau) >= lnTau0 from the luminosity marginal.
+double sampleLnTau(const LumiTable &t, double lnTau0, Rng &rng) {
+  const double c0 = interpCdf(t, lnTau0), c1 = t.cdf.back();
+  if (!(c1 > c0)) return std::min(0.0, lnTau0);
+  const double u = rng.uniform(c0, c1);
+  const size_t i = std::max<size_t>(1, std::upper_bound(t.cdf.begin(), t.cdf.end(), u) - t.cdf.begin());
+  const size_t k = std::min(i, t.cdf.size() - 1);
+  const double d = t.cdf[k] - t.cdf[k - 1];
+  const double f = d > 0 ? (u - t.cdf[k - 1]) / d : 0.0;
+  return std::max(lnTau0, std::min(0.0, t.lnTau[k - 1] + f * (t.lnTau[k] - t.lnTau[k - 1])));
+}
+
+// Rapidity of the parton system for fixed tau.
+double sampleRapidity(double lnTau, double b, Rng &rng, int maxAttempts) {
+  const double r = std::exp(0.5 * lnTau), ymax = -0.5 * lnTau;
+  if (ymax <= 0) return 0.0;
+  const double gmax = std::pow(std::max(0.0, 1 - r), 2 * b);
+  for (int a = 0; a < maxAttempts; ++a) {
+    const double y = rng.uniform(-ymax, ymax);
+    const double g = std::pow(std::max(0.0, 1 - r * std::exp(y)), b) * std::pow(std::max(0.0, 1 - r * std::exp(-y)), b);
+    if (gmax <= 0 || rng.uniform() * gmax < g) return y;
+  }
+  throw std::runtime_error("pdf rapidity sampling failed");
+}
+
 double sampleMass(const TaskConfig &t, int s, const std::vector<double> &v, double lo, double hi, Rng &rng) {
   const double M = v[t.particles[s].mass], G = v[t.particles[s].width];
   if (G <= 0) return M;
@@ -134,12 +205,14 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
   }
   const TaskComponent &comp = t.components[ev.component];
   ev.process = comp.process;
+  if (comp.subprocesses.size() > 1) ev.subprocess = static_cast<int>(rng.categorical(comp.weights()));
+  const TaskSubprocess &sub = comp.subprocesses[ev.subprocess];
 
   // 1) Decay tree structure: choose decay modes top-down.
   std::vector<Node> nodes;
-  for (size_t b = 0; b < comp.produced.size(); ++b) {
+  for (size_t b = 0; b < sub.produced.size(); ++b) {
     Node n;
-    n.species = comp.produced[b];
+    n.species = sub.produced[b];
     n.parent = -1;
     n.branch = static_cast<int>(b);
     nodes.push_back(n);
@@ -184,9 +257,10 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
   double rootMin = 0;
   for (auto &n : nodes)
     if (n.parent < 0) rootMin += n.minMass;
-  const double sMax = is.model == SqrtSModel::ExponentialPdf ? 2 * v[is.ebeam] - (comp.produced.size() > 1 ? v[is.offset] : 0.0)
-                    : is.model == SqrtSModel::Fixed && comp.produced.size() > 1 ? v[is.value] - v[is.offset]
-                    : is.model == SqrtSModel::Uniform && comp.produced.size() > 1 ? v[is.max] - v[is.offset]
+  const bool pdfLike = is.model == SqrtSModel::ExponentialPdf || is.model == SqrtSModel::Pdf;
+  const double sMax = pdfLike ? 2 * v[is.ebeam] - (sub.produced.size() > 1 ? v[is.offset] : 0.0)
+                    : is.model == SqrtSModel::Fixed && sub.produced.size() > 1 ? v[is.value] - v[is.offset]
+                    : is.model == SqrtSModel::Uniform && sub.produced.size() > 1 ? v[is.max] - v[is.offset]
                     : std::numeric_limits<double>::infinity();
   for (auto &n : nodes)
     if (n.parent < 0) {
@@ -219,12 +293,16 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
   double msum = 0;
   for (auto &n : nodes)
     if (n.parent < 0) msum += n.mass;
-  const bool single = comp.produced.size() == 1;
+  const bool single = sub.produced.size() == 1;
   const double ebeam = v[is.ebeam];
   double sqrtS = 0, y = 0;
   if (single) {
     sqrtS = msum;
-    if (is.rapidity_from_pdf) {
+    if (is.rapidity_from_pdf && is.model == SqrtSModel::Pdf) {
+      const double sq = sqrtS / (2 * ebeam);
+      if (!(sq < 1)) throw std::runtime_error(ctx + ": resonance mass exceeds collider energy");
+      y = sampleRapidity(2 * std::log(sq), v[is.pdf_b], rng, is.max_attempts);
+    } else if (is.rapidity_from_pdf) {
       // x1 x2 = s/(4 Eb^2) fixed; density in y ~ exp(-2 sqrt(x1x2) cosh(y)/tau).
       const double tau = v[is.tau] + v[is.tau_slope] * (sqrtS / 1000.0);
       const double sq = sqrtS / (2 * ebeam);
@@ -257,6 +335,14 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
         }
         if (!ok) throw std::runtime_error(ctx + ": sqrt(s) sampling failed above threshold " + num(thr));
         y = is.rapidity_from_pdf ? 0.5 * std::log(x1 / x2) : v[is.rapidity];
+        break;
+      }
+      case SqrtSModel::Pdf: {
+        const double sq = thr / (2 * ebeam);
+        if (!(sq < 1)) throw std::runtime_error(ctx + ": threshold " + num(thr) + " exceeds the collider energy");
+        const double lnTau = sampleLnTau(lumiTable(v[is.pdf_a], v[is.pdf_b]), 2 * std::log(sq), rng);
+        sqrtS = std::max(thr, 2 * ebeam * std::exp(0.5 * lnTau));
+        y = is.rapidity_from_pdf ? sampleRapidity(lnTau, v[is.pdf_b], rng, is.max_attempts) : v[is.rapidity];
         break;
       }
       case SqrtSModel::ThresholdExponential:
@@ -316,13 +402,13 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
   } else if (roots.size() == 2) {
     const double m[2] = {nodes[roots[0]].mass, nodes[roots[1]].mass};
     P4 out[2];
-    decayTwoBody(system, m, comp.angular, rng, out);
+    decayTwoBody(system, m, sub.angular, rng, out);
     nodes[roots[0]].p4 = out[0];
     nodes[roots[1]].p4 = out[1];
   } else {
     const double m[3] = {nodes[roots[0]].mass, nodes[roots[1]].mass, nodes[roots[2]].mass};
     P4 out[3];
-    decayThreeBody(system, m, ThreeBodyModel::PhaseSpace, comp.angular, rng, out);
+    decayThreeBody(system, m, ThreeBodyModel::PhaseSpace, sub.angular, rng, out);
     for (int k = 0; k < 3; ++k) nodes[roots[k]].p4 = out[k];
   }
   for (auto &n : nodes) {

@@ -59,6 +59,7 @@ std::string sqrtSModelName(SqrtSModel m) {
     case SqrtSModel::ThresholdExponential: return "threshold_exponential";
     case SqrtSModel::Fixed: return "fixed";
     case SqrtSModel::Uniform: return "uniform";
+    case SqrtSModel::Pdf: return "pdf";
   }
   return "exponential_pdf";
 }
@@ -104,15 +105,17 @@ void parseInitialStateFlags(const YAML::Node &n, InitialStateDef &is) {
     else if (m == "threshold_exponential") is.model = SqrtSModel::ThresholdExponential;
     else if (m == "fixed") is.model = SqrtSModel::Fixed;
     else if (m == "uniform") is.model = SqrtSModel::Uniform;
+    else if (m == "pdf") is.model = SqrtSModel::Pdf;
     else throw std::invalid_argument("initial_state.sqrt_s: unknown model '" + m + "'");
-    requireKeys(s, {"model", "ebeam", "tau", "tau_slope", "threshold_offset", "scale", "value", "min", "max"}, "initial_state.sqrt_s");
+    requireKeys(s, {"model", "ebeam", "tau", "tau_slope", "threshold_offset", "scale", "value", "min", "max", "a", "b"},
+                "initial_state.sqrt_s");
   }
   const YAML::Node y = n["rapidity"];
   if (y && y.IsScalar() && y.as<std::string>() == "from_pdf") is.rapidity_from_pdf = true;
   else if (y) is.rapidity_from_pdf = false;
-  else is.rapidity_from_pdf = (is.model == SqrtSModel::ExponentialPdf);
-  if (is.rapidity_from_pdf && is.model != SqrtSModel::ExponentialPdf)
-    throw std::invalid_argument("initial_state.rapidity: 'from_pdf' requires sqrt_s model exponential_pdf");
+  else is.rapidity_from_pdf = (is.model == SqrtSModel::ExponentialPdf || is.model == SqrtSModel::Pdf);
+  if (is.rapidity_from_pdf && is.model != SqrtSModel::ExponentialPdf && is.model != SqrtSModel::Pdf)
+    throw std::invalid_argument("initial_state.rapidity: 'from_pdf' requires sqrt_s model exponential_pdf or pdf");
   const YAML::Node r = n["recoil"];
   if (r) {
     if (r.IsScalar()) {
@@ -146,6 +149,8 @@ void registerInitialStateParams(const YAML::Node &n, ParamSet &ps) {
   f(s, "value", "value", 1000.0);
   f(s, "min", "min", 0.0);
   f(s, "max", "max", 13000.0);
+  f(s, "a", "pdf_a", 1.3);
+  f(s, "b", "pdf_b", 5.0);
   const YAML::Node y = n ? n["rapidity"] : YAML::Node(YAML::NodeType::Undefined);
   if (y && !(y.IsScalar() && y.as<std::string>() == "from_pdf")) ps.parse(y, "initial_state.rapidity");
   else ps.addFixed("initial_state.rapidity", 0.0);
@@ -181,6 +186,9 @@ void bindInitialStateParams(InitialStateDef &is, const ParamSet &ps) {
   is.recoil_pt = ps.at("initial_state.recoil_pt");
   is.recoil_rapidity = ps.at("initial_state.recoil_rapidity");
   is.recoil_n_jets = ps.at("initial_state.recoil_n_jets");
+  // Tasks serialised before the pdf model existed have no pdf parameters.
+  is.pdf_a = ps.find("initial_state.pdf_a");
+  is.pdf_b = ps.find("initial_state.pdf_b");
 }
 
 void emitInitialStateFlags(YAML::Emitter &out, const InitialStateDef &is) {
@@ -271,25 +279,30 @@ void PriorConfig::validate() const {
     visit(static_cast<int>(i), path);
   }
   for (const auto &pr : processes) {
-    const std::string ctx = "process '" + pr.name + "'";
-    if (!(pr.weight > 0)) throw std::invalid_argument(ctx + ": weight must be > 0");
-    if (pr.slots.empty()) throw std::invalid_argument(ctx + ": empty production");
-    if (pr.multiplicity.empty()) {
-      if (pr.slots.size() > 3) throw std::invalid_argument(ctx + ": at most three produced particles are supported");
-    } else {
-      if (pr.slots.size() != 1) throw std::invalid_argument(ctx + ": 'multiplicity' requires exactly one production entry");
-      for (int m : pr.multiplicity)
-        if (m < 1 || m > 3) throw std::invalid_argument(ctx + ": multiplicity values must be 1, 2 or 3");
+    if (!(pr.weight > 0)) throw std::invalid_argument("process '" + pr.name + "': weight must be > 0");
+    if (pr.subprocesses.empty()) throw std::invalid_argument("process '" + pr.name + "': no production");
+    for (size_t isp = 0; isp < pr.subprocesses.size(); ++isp) {
+      const SubprocessDef &sp = pr.subprocesses[isp];
+      const std::string ctx = "process '" + pr.name + "'" + (pr.subprocesses.size() > 1 ? " subprocess " + std::to_string(isp) : "");
+      if (sp.slots.empty()) throw std::invalid_argument(ctx + ": empty production");
+      if (sp.multiplicity.empty()) {
+        if (sp.slots.size() > 3) throw std::invalid_argument(ctx + ": at most three produced particles are supported");
+      } else {
+        if (sp.slots.size() != 1) throw std::invalid_argument(ctx + ": 'multiplicity' requires exactly one production entry");
+        for (int m : sp.multiplicity)
+          if (m < 1 || m > 3) throw std::invalid_argument(ctx + ": multiplicity values must be 1, 2 or 3");
+      }
+      for (const auto &s : sp.slots) {
+        if (s.choices.empty()) throw std::invalid_argument(ctx + ": empty choice");
+        if (!s.weights.empty() && s.weights.size() != s.choices.size())
+          throw std::invalid_argument(ctx + ": choice weights and particles differ in length");
+        for (const auto &c : s.choices)
+          if (!particle_index.count(c)) throw std::invalid_argument(ctx + ": unknown particle '" + c + "'");
+      }
+      for (int c : sp.angular.coeffs)
+        if (params.isEvent(c)) throw std::invalid_argument(ctx + ": angular coefficients cannot be event-scoped");
+      if (sp.weight >= 0 && params.isEvent(sp.weight)) throw std::invalid_argument(ctx + ": weight cannot be event-scoped");
     }
-    for (const auto &s : pr.slots) {
-      if (s.choices.empty()) throw std::invalid_argument(ctx + ": empty choice");
-      if (!s.weights.empty() && s.weights.size() != s.choices.size())
-        throw std::invalid_argument(ctx + ": choice weights and particles differ in length");
-      for (const auto &c : s.choices)
-        if (!particle_index.count(c)) throw std::invalid_argument(ctx + ": unknown particle '" + c + "'");
-    }
-    for (int c : pr.angular.coeffs)
-      if (params.isEvent(c)) throw std::invalid_argument(ctx + ": angular coefficients cannot be event-scoped");
   }
   for (const auto &f : features.defs)
     if (f.kind == FeatureKind::Environment && !detector.params.has(f.env_param))
@@ -386,12 +399,8 @@ PriorConfig parsePrior(const YAML::Node &root) {
     p.particles.push_back(std::move(d));
   }
   // Processes.
-  auto parseProcess = [&](const YAML::Node &n, const std::string &defname) {
-    ProcessDef pr;
-    pr.name = n["name"] ? n["name"].as<std::string>() : defname;
-    const std::string ctx = "process '" + pr.name + "'";
-    requireKeys(n, {"name", "weight", "production", "multiplicity", "angular"}, ctx);
-    if (n["weight"]) pr.weight = n["weight"].as<double>();
+  auto parseProduction = [&](const YAML::Node &n, const std::string &ctx, const std::string &angPrefix) {
+    SubprocessDef pr;
     if (!n["production"] || !n["production"].IsSequence()) throw std::invalid_argument(ctx + ": 'production' list is required");
     for (const auto &e : n["production"]) {
       SlotDef s;
@@ -416,7 +425,32 @@ PriorConfig parsePrior(const YAML::Node &root) {
           throw std::invalid_argument(ctx + ": multiplicity weights and values differ in length");
       }
     }
-    pr.angular = parseAngularDef(n["angular"], ps, "process." + pr.name + ".angular", AngularModel::Axis::Beam);
+    pr.angular = parseAngularDef(n["angular"], ps, angPrefix, AngularModel::Axis::Beam);
+    return pr;
+  };
+  auto parseProcess = [&](const YAML::Node &n, const std::string &defname) {
+    ProcessDef pr;
+    pr.name = n["name"] ? n["name"].as<std::string>() : defname;
+    const std::string ctx = "process '" + pr.name + "'";
+    requireKeys(n, {"name", "weight", "production", "multiplicity", "angular", "subprocesses"}, ctx);
+    if (n["weight"]) pr.weight = n["weight"].as<double>();
+    if (n["subprocesses"]) {
+      if (n["production"] || n["multiplicity"] || n["angular"])
+        throw std::invalid_argument(ctx + ": give either 'subprocesses' or 'production'/'multiplicity'/'angular'");
+      if (!n["subprocesses"].IsSequence() || n["subprocesses"].size() == 0)
+        throw std::invalid_argument(ctx + ": 'subprocesses' must be a non-empty list");
+      for (size_t i = 0; i < n["subprocesses"].size(); ++i) {
+        const YAML::Node sn = n["subprocesses"][i];
+        const std::string sctx = ctx + " subprocess " + std::to_string(i);
+        requireKeys(sn, {"production", "multiplicity", "angular", "weight"}, sctx);
+        const std::string pre = "process." + pr.name + ".sub" + std::to_string(i);
+        SubprocessDef sp = parseProduction(sn, sctx, pre + ".angular");
+        sp.weight = ps.parseOr(sn["weight"], pre + ".weight", 1.0);
+        pr.subprocesses.push_back(std::move(sp));
+      }
+    } else {
+      pr.subprocesses.push_back(parseProduction(n, ctx, "process." + pr.name + ".angular"));
+    }
     return pr;
   };
   if (root["processes"] && root["production"]) throw std::invalid_argument("prior: give either 'processes' or 'production', not both");

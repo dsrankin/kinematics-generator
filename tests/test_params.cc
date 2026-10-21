@@ -149,7 +149,7 @@ TEST(task_level_topology_and_multiplicity_sampling) {
     double fsum = 0;
     for (const auto &c : t.components) {
       processes.insert(c.process);
-      nproduced.insert(c.produced.size());
+      nproduced.insert(c.subprocesses[0].produced.size());
       fsum += c.fraction;
     }
     CHECK_CLOSE(fsum, 1, 1e-12);
