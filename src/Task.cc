@@ -209,6 +209,7 @@ TaskConfig sampleTask(const PriorConfig &prior, uint64_t master_seed, int64_t in
           sum += m.br;
           m.angular = resolveAngular(md.angular, v, "particle '" + pd.name + "' decay " + std::to_string(im));
           m.model = md.model;
+          m.reconstruct_as = md.reconstruct_as;
           p.modes.push_back(std::move(m));
         }
         if (!p.modes.empty()) {

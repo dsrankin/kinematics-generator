@@ -34,6 +34,7 @@ struct TruthParticle {
   int depth = 0;    // 0 for produced particles
   int decay_mode = -1;
   std::string object_type; // reconstructed type if visible, else "invisible"
+  std::string reconstruct_as; // set when decayed through a composite mode: visible descendants form one object
 
   bool isFinal() const { return status == TruthStatus::Final; }
   bool visible() const { return isFinal() && object_type != "invisible"; }
@@ -72,6 +73,8 @@ struct ObservedObject {
   int truth_index = -1;          // TruthEvent particle index; -1 for fakes
   std::string true_type;         // truth object type (or "fake")
   bool is_fake = false;
+  int n_constituents = 1;        // visible truth particles merged into this object (composites > 1 possible)
+  int n_charged = 0;             // of which charged (e.g. tau prongs)
 
   double pt() const { return p4.pt(); }
   double eta() const { return p4.eta(); }

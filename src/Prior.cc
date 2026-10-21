@@ -203,8 +203,11 @@ const ParticleDef &PriorConfig::particle(const std::string &n) const {
 
 std::vector<std::string> PriorConfig::objectTypes() const {
   std::set<std::string> s;
-  for (const auto &p : particles)
+  for (const auto &p : particles) {
     if (p.object != "invisible" && p.stable) s.insert(p.object);
+    for (const auto &m : p.modes)
+      if (!m.reconstruct_as.empty()) s.insert(m.reconstruct_as);
+  }
   if (initial.emit_recoil) s.insert(initial.recoil_object);
   for (const auto &t : detector.objectTypes()) s.insert(t);
   return {s.begin(), s.end()};
@@ -357,13 +360,18 @@ PriorConfig parsePrior(const YAML::Node &root) {
           if (dec.size() != 1) throw std::invalid_argument(ctx + ": several decay modes need explicit 'br' values");
           m.br = ps.addFixed(pre + ".br", 1.0);
         } else {
-          requireKeys(dec[i], {"daughters", "br", "angular", "model"}, ctx + " decay " + std::to_string(i));
+          requireKeys(dec[i], {"daughters", "br", "angular", "model", "reconstruct_as"}, ctx + " decay " + std::to_string(i));
           if (!dec[i]["daughters"]) throw std::invalid_argument(ctx + ": decay without 'daughters'");
           m.daughters = dec[i]["daughters"].as<std::vector<std::string>>();
           if (!dec[i]["br"] && dec.size() != 1) throw std::invalid_argument(ctx + ": several decay modes need explicit 'br' values");
           m.br = ps.parseOr(dec[i]["br"], pre + ".br", 1.0);
           m.angular = parseAngularDef(dec[i]["angular"], ps, pre + ".angular", AngularModel::Axis::Helicity);
           if (dec[i]["model"]) m.model = threeBodyModelFromString(dec[i]["model"].as<std::string>());
+          if (dec[i]["reconstruct_as"]) {
+            m.reconstruct_as = dec[i]["reconstruct_as"].as<std::string>();
+            if (m.reconstruct_as.empty() || m.reconstruct_as == "invisible" || m.reconstruct_as == "default")
+              throw std::invalid_argument(ctx + ": reconstruct_as must name an object type");
+          }
         }
         d.modes.push_back(std::move(m));
       }

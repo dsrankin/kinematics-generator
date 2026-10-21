@@ -386,6 +386,7 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
     tp.depth = n.depth;
     tp.decay_mode = n.mode;
     tp.object_type = sp.stable ? sp.object : "invisible";
+    if (n.mode >= 0) tp.reconstruct_as = sp.modes[n.mode].reconstruct_as;
     ev.particles.push_back(std::move(tp));
   }
   return ev;

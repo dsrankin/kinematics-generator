@@ -94,6 +94,7 @@ std::string taskToYAML(const TaskConfig &t) {
         out << YAML::Key << "daughters" << YAML::Value << YAML::Flow << d;
         out << YAML::Key << "br" << YAML::Value << m.br;
         out << YAML::Key << "model" << YAML::Value << threeBodyModelName(m.model);
+        if (!m.reconstruct_as.empty()) out << YAML::Key << "reconstruct_as" << YAML::Value << m.reconstruct_as;
         out << YAML::Key << "angular" << YAML::Value;
         emitAngular(out, m.angular);
         out << YAML::EndMap;
@@ -161,6 +162,7 @@ TaskConfig taskFromYAML(const std::string &yaml) {
         m.br = mn["br"].as<double>();
         m.model = threeBodyModelFromString(mn["model"].as<std::string>());
         m.angular = parseAngular(mn["angular"]);
+        if (mn["reconstruct_as"]) m.reconstruct_as = mn["reconstruct_as"].as<std::string>();
         p.br_weights.push_back(m.br);
         p.modes.push_back(std::move(m));
       }
@@ -249,6 +251,7 @@ std::string truthEventToYAML(const TruthEvent &ev) {
     out << YAML::Key << "depth" << YAML::Value << p.depth;
     out << YAML::Key << "decay_mode" << YAML::Value << p.decay_mode;
     out << YAML::Key << "object" << YAML::Value << p.object_type;
+    if (!p.reconstruct_as.empty()) out << YAML::Key << "reconstruct_as" << YAML::Value << p.reconstruct_as;
     out << YAML::EndMap;
   }
   out << YAML::EndSeq << YAML::EndMap;
@@ -284,6 +287,7 @@ TruthEvent truthEventFromYAML(const std::string &yaml) {
     p.depth = pn["depth"].as<int>();
     p.decay_mode = pn["decay_mode"].as<int>();
     p.object_type = pn["object"].as<std::string>();
+    if (pn["reconstruct_as"]) p.reconstruct_as = pn["reconstruct_as"].as<std::string>();
     ev.particles.push_back(std::move(p));
   }
   return ev;
@@ -322,6 +326,8 @@ std::string observedEventToYAML(const ObservedEvent &ev) {
     out << YAML::Key << "truth_index" << YAML::Value << o.truth_index;
     out << YAML::Key << "true_type" << YAML::Value << o.true_type;
     out << YAML::Key << "is_fake" << YAML::Value << o.is_fake;
+    out << YAML::Key << "n_constituents" << YAML::Value << o.n_constituents;
+    out << YAML::Key << "n_charged" << YAML::Value << o.n_charged;
     out << YAML::EndMap;
   }
   out << YAML::EndSeq << YAML::EndMap;
@@ -357,6 +363,8 @@ ObservedEvent observedEventFromYAML(const std::string &yaml) {
     o.truth_index = on["truth_index"].as<int>();
     o.true_type = on["true_type"].as<std::string>();
     o.is_fake = on["is_fake"].as<bool>();
+    if (on["n_constituents"]) o.n_constituents = on["n_constituents"].as<int>();
+    if (on["n_charged"]) o.n_charged = on["n_charged"].as<int>();
     ev.objects.push_back(std::move(o));
   }
   return ev;

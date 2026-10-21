@@ -222,6 +222,29 @@ mean a perfect detector):
 | `sigma_eta`, `sigma_phi` | Gaussian angular smearing |
 | `misid: {type: p}` | probability to be reconstructed as another type (Σ ≤ 1) |
 
+Composite objects (`reconstruct_as` on a decay mode) model objects that a detector reconstructs from
+several particles, most importantly hadronic taus:
+
+```yaml
+tau-:
+  mass: 1.777
+  decays:
+    - {daughters: [e-, ve, vt], br: 0.178}                      # leptonic: the electron is its own object
+    - {daughters: [pi-, vt], br: 0.108, reconstruct_as: tau}    # hadronic: one "tau" object
+    - {daughters: [rho-, vt], br: 0.255, reconstruct_as: tau}   # rho- -> pi- pi0, pi0 -> gamma gamma
+    - {daughters: [a1-, vt], br: 0.090, reconstruct_as: tau}    # three prongs
+```
+
+When a particle decays through such a mode, the four-momenta (and charges) of all its *visible*
+final-state descendants are summed into one reconstruction candidate of the given type, which then
+receives that type's efficiency, smearing, misidentification (e.g. `tau: {misid: {jet: 0.3}}`) and
+correlation-group shift like any other object; invisible descendants (neutrinos) stay in the MET.
+The same mechanism gives merged large-radius jets (`W -> q q` with `reconstruct_as: fatjet`). With
+nested composites the outermost one wins. Observed objects carry `n_constituents` and `n_charged`
+(prong count), available as `observed_proxy` feature quantities and as `n_constituents`/`n_charged`
+arrays in `generate_batch`; truth particles record `reconstruct_as`. Without composite modes the
+detector output is unchanged.
+
 Correlated response (`detector.correlations`), e.g. a jet energy scale shared by light and b jets:
 
 ```yaml
@@ -267,7 +290,8 @@ features:
   - {name: res_tag, kind: environment, param: detector.jet.resolution.stochastic, coeff: 1, sigma: 0.1}
 ```
 
-Truth quantities: `pt eta phi m e px py pz charge pdg is_fake depth branch parent_pdg parent_mass`.
+Truth quantities: `pt eta phi m e px py pz charge pdg is_fake depth branch parent_pdg parent_mass`;
+observed quantities additionally include `n_constituents` and `n_charged`.
 Labels: `component`, `process`, `truth_type` (truth particle name or `fake`), `parent`, `is_fake`.
 For label-correlated features a shift per category is drawn once per task, so both the presence
 and the strength of a spurious correlation vary between tasks. `missing_prob` blanks values per
@@ -327,7 +351,7 @@ with `test.cc` is not possible because ROOT's `TRandom3` is no longer used.
   hadronisation or interference; widths enter only through Breit-Wigner line shapes.
 * ISR jets are independent massless objects (no shower, no colour coherence); there is no
   underlying event or pile-up beyond the MET soft term and fakes.
-* Detector response is per object apart from the correlation groups, without overlap removal or
-  isolation.
+* Detector response is per object apart from correlation groups and composites, without overlap
+  removal or isolation.
 * Parton momentum fractions are not re-checked after adding ISR jets, so very hard ISR can give
   x₁ or x₂ slightly above one.

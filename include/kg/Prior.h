@@ -33,6 +33,7 @@ struct DecayModeDef {
   int br = -1;                        // parameter index
   AngularDef angular;
   ThreeBodyModel model = ThreeBodyModel::PhaseSpace;
+  std::string reconstruct_as; // non-empty: visible descendants are reconstructed as one object of this type
 };
 
 struct ParticleDef {

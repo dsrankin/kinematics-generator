@@ -109,7 +109,8 @@ if(KG_BUILD_TESTS)
     tests/test_features.cc
     tests/test_reproducibility.cc
     tests/test_legacy.cc
-    tests/test_isr_correlations.cc)
+    tests/test_isr_correlations.cc
+    tests/test_composite.cc)
   target_link_libraries(kg_tests PRIVATE kinegen)
   target_compile_definitions(kg_tests PRIVATE KG_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME kg_tests COMMAND kg_tests)

@@ -67,6 +67,8 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   py::array_t<float> p4(shape{sn, sm, 4}), kin(shape{sn, sm, 4}), feat(shape{sn, sm, sf}), met(shape{sn, 2});
   py::array_t<int32_t> type(shape{sn, sm}), truth(shape{sn, sm}), label(shape{sn}), nobj(shape{sn});
   py::array_t<bool> mask(shape{sn, sm}), fake(shape{sn, sm});
+  py::array_t<float> charge(shape{sn, sm});
+  py::array_t<int32_t> ncon(shape{sn, sm}), nchg(shape{sn, sm});
   py::array_t<uint64_t> index(shape{sn});
   // Truth summaries (targets for supervised pretraining; never model inputs by default).
   py::array_t<float> tmet(shape{sn, 2}), sqrts(shape{sn}), mprod(shape{sn});
@@ -79,6 +81,9 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   auto Tr = truth.mutable_unchecked<2>();
   auto Ma = mask.mutable_unchecked<2>();
   auto Fk = fake.mutable_unchecked<2>();
+  auto Ch = charge.mutable_unchecked<2>();
+  auto Nc = ncon.mutable_unchecked<2>();
+  auto Nq = nchg.mutable_unchecked<2>();
   auto L = label.mutable_unchecked<1>();
   auto N = nobj.mutable_unchecked<1>();
   auto I = index.mutable_unchecked<1>();
@@ -117,6 +122,9 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
         T(i, j) = -1;
         Tr(i, j) = -1;
         Fk(i, j) = false;
+        Ch(i, j) = 0;
+        Nc(i, j) = 0;
+        Nq(i, j) = 0;
         continue;
       }
       const ObservedObject &ob = o.objects[j];
@@ -132,6 +140,9 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
       T(i, j) = ob.type_code;
       Tr(i, j) = ob.truth_index;
       Fk(i, j) = ob.is_fake;
+      Ch(i, j) = static_cast<float>(ob.charge);
+      Nc(i, j) = ob.n_constituents;
+      Nq(i, j) = ob.n_charged;
     }
   }
   py::dict d;
@@ -142,6 +153,9 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   d["features"] = feat;
   d["truth_index"] = truth;
   d["is_fake"] = fake;
+  d["charge"] = charge;
+  d["n_constituents"] = ncon; // visible truth particles merged into each object (composites, e.g. hadronic taus)
+  d["n_charged"] = nchg;
   d["met"] = met;
   d["label"] = label;
   d["n_objects"] = nobj; // before any max_objects truncation
@@ -248,6 +262,7 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("depth", &TruthParticle::depth)
       .def_readonly("decay_mode", &TruthParticle::decay_mode)
       .def_readonly("object_type", &TruthParticle::object_type)
+      .def_readonly("reconstruct_as", &TruthParticle::reconstruct_as)
       .def_property_readonly("status", [](const TruthParticle &p) { return statusName(p.status); })
       .def_property_readonly("p4", [](const TruthParticle &p) { return p4tuple(p.p4); })
       .def("__repr__", [](const TruthParticle &p) { return "<TruthParticle " + std::to_string(p.index) + " " + p.name + ">"; });
@@ -274,6 +289,8 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("truth_index", &ObservedObject::truth_index)
       .def_readonly("true_type", &ObservedObject::true_type)
       .def_readonly("is_fake", &ObservedObject::is_fake)
+      .def_readonly("n_constituents", &ObservedObject::n_constituents)
+      .def_readonly("n_charged", &ObservedObject::n_charged)
       .def_property_readonly("p4", [](const ObservedObject &o) { return p4tuple(o.p4); })
       .def_property_readonly("pt", &ObservedObject::pt)
       .def_property_readonly("eta", &ObservedObject::eta)

@@ -16,7 +16,8 @@ and meta-learning of collider-physics models:
 * An **observed event** is a variable-length list of reconstructed objects
   (four-vector, type, arbitrary named features, optional truth association)
   plus MET, produced by a configurable detector model (smearing, efficiencies,
-  fakes, misidentification, correlated energy-scale shifts, MET).
+  fakes, misidentification, correlated energy-scale shifts, MET). Composite
+  reconstruction turns e.g. hadronic tau decays into single tau objects.
 
 Everything runs in memory (C++ or Python); ROOT and YAML output are optional.
 See [DESIGN.md](DESIGN.md) for the API, data flow and full configuration
@@ -171,7 +172,7 @@ and `decay2` are ignored, but placeholders are required.
 ancestry, Dalitz flatness, angular models, parameter distributions and mass-ratio
 constraints, graph and threshold validation, variable multiplicities, detector
 smearing/efficiency/fakes/misidentification/MET, multi-jet ISR, correlated
-smearing, features, deterministic
+smearing, composite (hadronic-tau) reconstruction, features, deterministic
 reproducibility, task/environment/event serialisation round trips, splits, the
 legacy adapter), the ROOT suite (writer, legacy trees, comparison with
 `myGenerator.h`) and the Python suite.

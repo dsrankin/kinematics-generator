@@ -30,6 +30,7 @@ struct TaskDecayMode {
   double br = 1;
   AngularModel angular;
   ThreeBodyModel model = ThreeBodyModel::PhaseSpace;
+  std::string reconstruct_as; // composite reconstruction type (empty: none)
 };
 
 struct TaskParticle {

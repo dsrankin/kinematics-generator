@@ -53,6 +53,8 @@ double observedQuantity(const ObservedObject &o, const std::string &q) {
   if (q == "py") return o.p4.py;
   if (q == "pz") return o.p4.pz;
   if (q == "charge") return o.charge;
+  if (q == "n_constituents") return o.n_constituents;
+  if (q == "n_charged") return o.n_charged;
   return kNaN;
 }
 
@@ -145,20 +147,59 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   double recx = 0, recy = 0;         // unclustered recoil
   double sumEt = 0;
 
-  for (const auto &p : truth.particles) {
+  // Reconstruction candidates: visible final-state particles, except that the
+  // visible descendants of a particle decayed through a `reconstruct_as` mode are
+  // merged into one composite object (e.g. a hadronic tau). The outermost merging
+  // ancestor wins. Without composite modes this is exactly the list of visible
+  // final-state particles in index order.
+  struct Candidate {
+    int index;
+    P4 p4;
+    double charge;
+    std::string type;
+    int n_constituents, n_charged;
+  };
+  const size_t np = truth.particles.size();
+  std::vector<int> owner(np, -1);
+  for (size_t i = 0; i < np; ++i) {
+    const int par = truth.particles[i].parent;
+    if (par >= 0) owner[i] = owner[par] >= 0 ? owner[par] : (truth.particles[par].reconstruct_as.empty() ? -1 : par);
+  }
+  std::vector<Candidate> cands;
+  std::vector<int> compositeSlot(np, -1);
+  for (size_t i = 0; i < np; ++i) {
+    const TruthParticle &p = truth.particles[i];
     if (p.status == TruthStatus::Recoil) {
       recx += p.p4.px;
       recy += p.p4.py;
       continue;
     }
+    if (owner[i] < 0 && !p.reconstruct_as.empty()) {
+      compositeSlot[i] = static_cast<int>(cands.size());
+      cands.push_back({p.index, P4(), 0.0, p.reconstruct_as, 0, 0});
+      continue;
+    }
     if (!p.visible()) continue;
-    const Response &r = ds.response(p.object_type);
+    if (owner[i] >= 0) {
+      Candidate &c = cands[compositeSlot[owner[i]]];
+      c.p4 += p.p4;
+      c.charge += p.charge;
+      ++c.n_constituents;
+      c.n_charged += p.charge != 0;
+      continue;
+    }
+    cands.push_back({p.index, p.p4, p.charge, p.object_type, 1, p.charge != 0 ? 1 : 0});
+  }
+
+  for (const Candidate &c : cands) {
+    if (c.n_constituents == 0) continue; // composite with only invisible descendants
+    const Response &r = ds.response(c.type);
     // Draw all random numbers up front so that later choices do not shift streams.
     const double uEff = rng.uniform(), uMis = rng.uniform();
     const double gE = rng.gauss(), gEta = rng.gauss(), gPhi = rng.gauss();
-    const double pt = p.p4.pt(), eta = p.p4.eta();
+    const double pt = c.p4.pt(), eta = c.p4.eta();
     bool keep = std::fabs(eta) <= r.eta_max && uEff < r.efficiencyAt(pt);
-    std::string type = p.object_type;
+    std::string type = c.type;
     if (keep && !r.misid.empty()) {
       double acc = 0;
       for (const auto &m : r.misid) {
@@ -172,33 +213,35 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     P4 meas;
     if (keep) {
       double shift = 0, g = gE;
-      auto grp = ds.group_of.find(p.object_type);
+      auto grp = ds.group_of.find(c.type);
       if (grp != ds.group_of.end()) {
         const double rho = ds.groups[grp->second].rho;
         shift = groupShift[grp->second];
         g = std::sqrt(rho) * groupCommon[grp->second] + std::sqrt(1 - rho) * gE;
       }
-      const double f = r.scale * (1.0 + shift) * (1.0 + r.relativeResolution(p.p4.e, pt) * g);
+      const double f = r.scale * (1.0 + shift) * (1.0 + r.relativeResolution(c.p4.e, pt) * g);
       if (f <= 0) keep = false;
       else {
-        meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(p.p4.phi() + r.sigma_phi * gPhi), std::max(0.0, p.p4.m()) * f);
+        meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(c.p4.phi() + r.sigma_phi * gPhi), std::max(0.0, c.p4.m()) * f);
         if (meas.pt() < ds.response(type).pt_min) keep = false;
       }
     }
     if (!keep) {
       ++out.n_lost;
-      lostx += p.p4.px;
-      losty += p.p4.py;
+      lostx += c.p4.px;
+      losty += c.p4.py;
       continue;
     }
     ObservedObject o;
     o.p4 = meas;
     o.type = type;
     o.type_code = t.typeCode(type);
-    o.charge = p.charge;
-    o.truth_index = p.index;
-    o.true_type = p.object_type;
-    if (type != p.object_type) ++out.n_misid;
+    o.charge = c.charge;
+    o.truth_index = c.index;
+    o.true_type = c.type;
+    o.n_constituents = c.n_constituents;
+    o.n_charged = c.n_charged;
+    if (type != c.type) ++out.n_misid;
     out.objects.push_back(std::move(o));
   }
 
