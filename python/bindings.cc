@@ -332,6 +332,8 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("met_y", &ObservedEvent::met_y)
       .def_readonly("n_lost", &ObservedEvent::n_lost)
       .def_readonly("n_fakes", &ObservedEvent::n_fakes)
+      .def_readonly("n_misid", &ObservedEvent::n_misid)
+      .def_readonly("sum_et", &ObservedEvent::sum_et)
       .def_readonly("detector_params", &ObservedEvent::detector_params)
       .def_property_readonly("met", &ObservedEvent::met)
       .def_property_readonly("feature_names", [](const ObservedEvent &e) {

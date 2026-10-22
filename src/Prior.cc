@@ -475,6 +475,8 @@ PriorConfig parsePrior(const YAML::Node &root) {
       const YAML::Node m = n["multiplicity"];
       if (m.IsScalar()) pr.multiplicity = {m.as<int>()};
       else {
+        requireKeys(m, {"values", "weights"}, ctx + " multiplicity");
+        if (!m["values"]) throw std::invalid_argument(ctx + ": multiplicity needs 'values'");
         pr.multiplicity = m["values"].as<std::vector<int>>();
         if (m["weights"]) pr.multiplicity_weights = m["weights"].as<std::vector<double>>();
         if (!pr.multiplicity_weights.empty() && pr.multiplicity_weights.size() != pr.multiplicity.size())
@@ -544,7 +546,8 @@ PriorConfig parsePrior(const YAML::Node &root) {
       } else if (f.IsSequence()) {
         p.task.fractions = "fixed";
         p.task.fixed_fractions = f.as<std::vector<double>>();
-      } else if (f["dirichlet"]) {
+      } else if (f.IsMap() && f["dirichlet"]) {
+        requireKeys(f, {"dirichlet"}, "task.fractions");
         p.task.fractions = "dirichlet";
         p.task.dirichlet_alpha = f["dirichlet"].as<double>();
         if (!(p.task.dirichlet_alpha > 0)) throw std::invalid_argument("task.fractions: dirichlet alpha must be > 0");

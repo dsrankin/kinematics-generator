@@ -1,27 +1,34 @@
 ## Kinematic Generator
 
-A lightweight parton-level collider event generator for synthetic pretraining
-and meta-learning of collider-physics models:
+A lightweight collider event generator for synthetic pretraining and
+meta-learning of collider-physics models (hard process with explicit decay
+trees, optional final-state parton shower, underlying event and jet clustering,
+parametrised or measured detector response):
 
 **Prior → Task → Truth Event → Observed Event**
 
 * A **prior** (YAML) defines distributions over particles, masses, widths,
-  branching fractions, angular distributions, production topologies and
-  multiplicities, initial-state models, detector environments and auxiliary
-  features.
+  branching fractions, angular distributions, production topologies,
+  multiplicities and per-event production alternatives (hard extra partons),
+  the parton luminosity and ISR recoil, the parton shower and underlying event,
+  detector environments and auxiliary features.
 * A **task** is one sampled physics configuration; any number of independent
   events can be generated from it, in any order, reproducibly.
 * A **truth event** keeps the full decay tree (four-vectors, PDG ids, parents,
   children, ancestry).
 * An **observed event** is a variable-length list of reconstructed objects
   (four-vector, type, arbitrary named features, optional truth association)
-  plus MET, produced by a configurable detector model (smearing, efficiencies,
-  fakes, misidentification, correlated energy-scale shifts, MET). Composite
-  reconstruction turns e.g. hadronic tau decays into single tau objects.
+  plus MET, produced by a configurable detector model (parametric or binned
+  measured response, efficiencies, fakes, misidentification, correlated
+  energy-scale shifts, MET). Composite reconstruction turns e.g. hadronic tau
+  decays into single tau objects; anti-kT clustering of shower partons gives
+  jets with masses (QCD jets and merged boosted W/Z/H/top).
 
 Everything runs in memory (C++ or Python); ROOT and YAML output are optional.
-See [DESIGN.md](DESIGN.md) for the API, data flow and full configuration
-schema.
+[DESIGN.md](DESIGN.md) explains the data flow and the physics and detector
+models; [REFERENCE.md](REFERENCE.md) is the complete reference (every YAML key
+with its default, parameter names, the Python API, command-line options and
+output formats).
 
 ### Install the Python module (any machine)
 
@@ -32,12 +39,17 @@ pip install "git+https://github.com/dsrankin/kinematics-generator@foundation-mod
 
 This compiles the extension for the Python running `pip` (needs a C++17 compiler, git and network
 access for yaml-cpp/pybind11; CMake is fetched from PyPI if the system one is missing or too old).
+It installs only the Python module `kinegen`: the command-line tools, ROOT output and the C++
+library come from the CMake build below.
 
 ### Build
 
 Requirements: a C++17 compiler and CMake ≥ 3.16. yaml-cpp and pybind11 are used
-from the system if found and fetched otherwise. ROOT is optional (needed only
-for ROOT output and the legacy `test.cc`).
+from the system if found and fetched otherwise. ROOT is optional: it is needed
+for ROOT output (`kg-generate --out`, including `--legacy-card` runs, which
+default to the card's ROOT file) and the legacy `test.cc`; without ROOT use
+`--yaml-out`. Build options and linking the library from your own CMake project
+are in [REFERENCE.md](REFERENCE.md#using-the-c-library).
 
 ```
 cmake -S . -B build -DKG_BUILD_PYTHON=ON      # -DKG_WITH_ROOT=OFF to skip ROOT
@@ -45,9 +57,21 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Single-threaded throughput is roughly 2.5–4×10⁵ observed events per second
-in memory (Apple M-series, examples below); ROOT output with full truth runs at
-about 5×10⁴ events per second.
+Single-threaded throughput in memory (`kg-generate --events 100000` without output, Apple M2,
+Release build):
+
+| Example | Events/s |
+|---|---|
+| `fixed_process.yaml` | 2.5×10⁵ |
+| `detector_randomization.yaml` | 2.2×10⁵ |
+| `randomized_tasks.yaml` | 1.5×10⁵ |
+| `collide_tuned_sm.yaml` (shower, underlying event, jet clustering) | 3×10⁴ |
+| `jet_substructure.yaml` (shower, underlying event, two jet collections) | 2×10⁴ |
+
+The parton shower, underlying event and clustering cost roughly a factor 10. `kg-generate` is
+single-threaded; Python's `generate_batch(..., threads=N)` scales with cores (about 1×10⁵ events/s
+on 8 threads for a COLLIDE-like prior with shower). ROOT output with full truth runs at about
+5×10⁴ events per second.
 
 ### Quick start
 
@@ -83,13 +107,15 @@ batch["ptetaphim"], batch["features"], batch["mask"], batch["label"]   # padded 
 See `examples/train_feed.py` for an episodic (support/query) training feed with
 topology-based train/val/test splits.
 
-Command line:
+Command line (`--out` needs a ROOT build; `--yaml-out` works everywhere; options in
+[REFERENCE.md](REFERENCE.md#command-line-tools)):
 
 ```
 build/kg-generate --prior examples/fixed_process.yaml --events 100000 --out ttbar.root
 build/kg-generate --prior examples/randomized_tasks.yaml --tasks 100 --events 2000 --seed 1 --out tasks.root
 build/kg-generate --prior examples/detector_randomization.yaml --envs 10 --events 10000 --out dr.root
 build/kg-generate --prior examples/randomized_tasks.yaml --tasks 3 --save-tasks tasks/   # task YAML files
+build/kg-generate --prior examples/jet_substructure.yaml --events 1000 --yaml-out jets.yaml # no ROOT needed
 ```
 
 ### Examples
@@ -99,7 +125,7 @@ build/kg-generate --prior examples/randomized_tasks.yaml --tasks 3 --save-tasks 
 | `examples/fixed_process.yaml` | fixed-process generation: t t̄ with widths, W branching fractions, helicity angular distributions, Poisson multi-jet ISR, a realistic detector with a correlated jet energy scale |
 | `examples/randomized_tasks.yaml` | randomised tasks: log-uniform masses, daughter/parent mass ratios, widths as fractions of masses, per-task decay-mode choice, single/pair/1–3 multiplicity production, two-process mixtures, randomised features |
 | `examples/detector_randomization.yaml` | detector-domain randomisation: one physics process, environment-level and event-level detector parameters, randomised correlated jet energy scale |
-| `examples/collide_tuned_sm.yaml` | realistic SM defaults: W, Z, tt̄, dibosons, QCD, γ+jet, V+γ with hard extra partons, PDF luminosity, ISR and a detector tuned to COLLIDE-1M (Delphes, with pile-up); see the file header for what was and was not tuned |
+| `examples/collide_tuned_sm.yaml` | realistic SM defaults: W, Z, tt̄, dibosons, QCD, γ+jet, V+γ with hard extra partons, PDF luminosity, ISR, parton shower, underlying event, anti-kT jets and a detector tuned to COLLIDE-1M (a Delphes simulation with pile-up; kinegen itself has no pile-up beyond the MET soft term). Each task is one SM process (`task: {components: 1}`); see the file header for what was and was not tuned |
 | `examples/jet_substructure.yaml` | jet masses: final-state parton shower, underlying event, anti-kT R = 0.4 jets plus an R = 0.8 large-radius collection, boosted W/Z/H/top from a heavy resonance and QCD dijets, jet-mass response |
 | `examples/migrated_process.yaml` | `process.card` converted with `kg-convert-card` |
 | `examples/stream_example.cc`, `examples/train_feed.py` | in-memory streaming from C++ and Python |
@@ -154,7 +180,8 @@ build/kg-generate --legacy-card process.card --new-format --out new.root
 The converted prior reproduces the legacy kinematics: on 2×10⁵ events the means
 and RMS of every `test` branch agree with `test.cc` within statistical errors.
 Single-character names are no longer required; particles can be called `W+`,
-`chi_10`, etc. The old mass-grid script `crank.sh` can be replaced by a prior
+`chi_10`, etc. (names used inside expressions must be identifiers, `[A-Za-z_][A-Za-z0-9_.]*`, so
+prefer `Wp` over `W+` for particles whose mass you want to reference in an expression). The old mass-grid script `crank.sh` can be replaced by a prior
 with mass distributions (or a `ratio_of` constraint) and `--tasks N`.
 
 ### Legacy macro
@@ -186,5 +213,7 @@ constraints, graph and threshold validation, variable multiplicities, detector
 smearing/efficiency/fakes/misidentification/MET, multi-jet ISR, correlated
 smearing, composite (hadronic-tau) reconstruction, features, deterministic
 reproducibility, task/environment/event serialisation round trips, splits, the
-legacy adapter), the ROOT suite (writer, legacy trees, comparison with
-`myGenerator.h`) and the Python suite.
+legacy adapter, parton shower, jet clustering and masses, underlying event, response maps,
+validation of misspelled keys), the ROOT suite (writer, legacy trees, comparison with
+`myGenerator.h`; only when built with ROOT) and the Python suite (only with
+`-DKG_BUILD_PYTHON=ON` and NumPy installed).

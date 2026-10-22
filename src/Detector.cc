@@ -68,11 +68,19 @@ std::shared_ptr<const MassResponseMap> parseMassResponse(const YAML::Node &n, co
   return m;
 }
 
+void onlyKeys(const YAML::Node &n, const std::set<std::string> &allowed, const std::string &ctx) {
+  if (!n || !n.IsMap()) return;
+  for (const auto &kv : n)
+    if (!allowed.count(kv.first.as<std::string>()))
+      throw std::invalid_argument(ctx + ": unknown key '" + kv.first.as<std::string>() + "'");
+}
+
 ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet &ps) {
   const std::string p = "detector." + type + ".";
   ResponseDef r;
   const YAML::Node eff = n["efficiency"];
   if (eff && eff.IsMap() && !eff["dist"] && !eff["expr"] && !eff["value"]) {
+    onlyKeys(eff, {"plateau", "pt50", "width"}, "detector." + type + ".efficiency");
     r.efficiency = ps.parseOr(eff["plateau"], p + "efficiency", 1.0);
     r.eff_pt50 = ps.parseOr(eff["pt50"], p + "eff_pt50", 0.0);
     r.eff_width = ps.parseOr(eff["width"], p + "eff_width", 0.0);
@@ -84,6 +92,7 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
   r.pt_min = ps.parseOr(n["pt_min"], p + "pt_min", 0.0);
   r.eta_max = ps.parseOr(n["eta_max"], p + "eta_max", kInf);
   const YAML::Node res = n["resolution"];
+  onlyKeys(res, {"stochastic", "constant", "noise", "pt_term"}, "detector." + type + ".resolution");
   r.stochastic = ps.parseOr(res ? res["stochastic"] : YAML::Node(YAML::NodeType::Undefined), p + "resolution.stochastic", 0.0);
   r.constant = ps.parseOr(res ? res["constant"] : YAML::Node(YAML::NodeType::Undefined), p + "resolution.constant", 0.0);
   r.noise = ps.parseOr(res ? res["noise"] : YAML::Node(YAML::NodeType::Undefined), p + "resolution.noise", 0.0);
@@ -171,6 +180,7 @@ DetectorPrior parseDetectorPrior(const YAML::Node &n) {
     }
   }
   const YAML::Node f = n ? n["fakes"] : YAML::Node(YAML::NodeType::Undefined);
+  onlyKeys(f, {"rate", "types", "pt_min", "pt_scale", "eta_max"}, "detector.fakes");
   d.fakes.rate = ps.parseOr(f ? f["rate"] : YAML::Node(YAML::NodeType::Undefined), "detector.fakes.rate", 0.0);
   d.fakes.pt_min = ps.parseOr(f ? f["pt_min"] : YAML::Node(YAML::NodeType::Undefined), "detector.fakes.pt_min", 20.0);
   d.fakes.pt_scale = ps.parseOr(f ? f["pt_scale"] : YAML::Node(YAML::NodeType::Undefined), "detector.fakes.pt_scale", 10.0);
@@ -182,6 +192,7 @@ DetectorPrior parseDetectorPrior(const YAML::Node &n) {
     }
   }
   const YAML::Node m = n ? n["met"] : YAML::Node(YAML::NodeType::Undefined);
+  onlyKeys(m, {"soft_sigma", "sumet_coeff", "recoil_scale", "recoil_resolution", "lost_to_met"}, "detector.met");
   d.met.soft_sigma = ps.parseOr(m ? m["soft_sigma"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.soft_sigma", 0.0);
   d.met.sumet_coeff = ps.parseOr(m ? m["sumet_coeff"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.sumet_coeff", 0.0);
   d.met.recoil_scale = ps.parseOr(m ? m["recoil_scale"] : YAML::Node(YAML::NodeType::Undefined), "detector.met.recoil_scale", 1.0);

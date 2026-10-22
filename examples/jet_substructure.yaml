@@ -61,7 +61,7 @@ initial_state:
 parton_shower:
   # Defaults (with the underlying event below) calibrated on 2026-10-22 to COLLIDE-1M (Pythia 8)
   # generator-level QCD jets (|eta| < 2.4): the 10/25/50/75/90 % quantiles of m/pT of anti-kT
-  # R = 0.4 jets from 30 GeV to 1 TeV and of R = 0.8 jets above 300 GeV agree within 4 % on average.
+  # R = 0.4 jets from 30 GeV to 1 TeV and of R = 0.8 jets above 300 GeV agree within 5 % on average.
   alpha_s: 0.13           # effective alpha_s(mZ) of the leading-log shower (one-loop running)
   kt_min: 1.0             # GeV: shower cutoff
   hadron_mass: 0.5        # GeV: mass of each final shower parton

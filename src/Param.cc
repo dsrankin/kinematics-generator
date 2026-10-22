@@ -65,14 +65,21 @@ int ParamSet::parse(const YAML::Node &n, const std::string &name) {
     d.scope = parseScope(n["scope"], name);
     if (n["dist"]) {
       d.kind = ParamDef::Kind::Dist;
-      d.dist = Distribution::fromYAML(n, "parameter '" + name + "'");
+      d.dist = Distribution::fromYAML(n, "parameter '" + name + "'"); // also rejects unknown keys
       if (n["ratio_of"]) d.ratio_of = n["ratio_of"].as<std::string>();
-    } else if (n["expr"]) {
-      d.kind = ParamDef::Kind::Expr;
-      d.expr = Expression(n["expr"].as<std::string>());
-    } else if (n["value"]) {
-      d.kind = ParamDef::Kind::Fixed;
-      d.value = n["value"].as<double>();
+    } else if (n["expr"] || n["value"]) {
+      const char *k = n["expr"] ? "expr" : "value";
+      for (const auto &kv : n) {
+        const std::string key = kv.first.as<std::string>();
+        if (key != k && key != "scope") throw std::invalid_argument("parameter '" + name + "': unknown key '" + key + "'");
+      }
+      if (n["expr"]) {
+        d.kind = ParamDef::Kind::Expr;
+        d.expr = Expression(n["expr"].as<std::string>());
+      } else {
+        d.kind = ParamDef::Kind::Fixed;
+        d.value = n["value"].as<double>();
+      }
     } else {
       throw std::invalid_argument("parameter '" + name + "': map must contain 'dist', 'expr' or 'value'");
     }

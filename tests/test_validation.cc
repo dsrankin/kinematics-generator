@@ -175,3 +175,25 @@ TEST(detector_and_feature_config_validated) {
   }
   CHECK(threw);
 }
+
+TEST(misspelled_nested_keys_rejected) {
+  // Typos inside parameter, detector, multiplicity and fraction maps are errors, not silent defaults.
+  const std::string base = kgtest::kTwoLeptons;
+  auto bad = [&](const std::string &extra, const char *msg) {
+    CHECK_THROWS_AS(kgtest::prior(base + extra), std::invalid_argument, msg);
+  };
+  bad("parameters: {x: {dist: uniform, min: 0, max: 1, scop: event}}\n", "unknown key 'scop'");
+  bad("parameters: {x: {expr: \"1 + 1\", scale: 2}}\n", "unknown key 'scale'");
+  bad("detector: {objects: {muon: {resolution: {stochastc: 0.1}}}}\n", "unknown key 'stochastc'");
+  bad("detector: {objects: {muon: {efficiency: {plateu: 0.9}}}}\n", "unknown key 'plateu'");
+  bad("detector: {fakes: {rat: 0.1}}\n", "unknown key 'rat'");
+  bad("detector: {met: {soft_sgima: 3}}\n", "unknown key 'soft_sgima'");
+  CHECK_THROWS_AS(kgtest::prior(R"(
+particles:
+  X: {pdg: 13, mass: 0.1}
+processes:
+  - {name: m, production: [X], multiplicity: {values: [1, 2], weigths: [1, 1]}}
+)"), std::invalid_argument, "unknown key 'weigths'");
+  // Correct spellings still parse.
+  kgtest::prior(base + "parameters: {x: {dist: uniform, min: 0, max: 1, scope: event}, y: {expr: \"2 * x\", scope: event}}\n");
+}

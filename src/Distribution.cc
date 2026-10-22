@@ -1,6 +1,8 @@
 #include "kg/Distribution.h"
 
 #include <cmath>
+#include <map>
+#include <set>
 #include <stdexcept>
 
 #include <yaml-cpp/yaml.h>
@@ -205,6 +207,19 @@ std::string Distribution::typeName() const {
 Distribution Distribution::fromYAML(const YAML::Node &n, const std::string &c) {
   if (!n.IsMap() || !n["dist"]) throw std::invalid_argument(ctx(c) + ": expected a map with a 'dist' key");
   const std::string t = n["dist"].as<std::string>();
+  // Keys a distribution map may contain (plus `scope` and `ratio_of`, used by parameters).
+  static const std::map<std::string, std::set<std::string>> keys = {
+      {"fixed", {"value"}}, {"uniform", {"min", "max"}}, {"loguniform", {"min", "max"}}, {"log_uniform", {"min", "max"}},
+      {"gaussian", {"mean", "sigma"}}, {"normal", {"mean", "sigma"}}, {"truncated_gaussian", {"mean", "sigma", "min", "max"}},
+      {"breit_wigner", {"mean", "width", "min", "max", "relativistic"}}, {"categorical", {"values", "weights"}},
+      {"exponential", {"scale", "offset"}}, {"poisson", {"mean"}}};
+  auto known = keys.find(t);
+  if (known != keys.end())
+    for (const auto &kv : n) {
+      const std::string k = kv.first.as<std::string>();
+      if (k != "dist" && k != "scope" && k != "ratio_of" && !known->second.count(k))
+        throw std::invalid_argument(ctx(c) + ": unknown key '" + k + "' for distribution '" + t + "'");
+    }
   auto req = [&](const char *k) {
     if (!n[k]) throw std::invalid_argument(ctx(c) + ": '" + t + "' requires '" + k + "'");
     return n[k].as<double>();

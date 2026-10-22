@@ -1,7 +1,10 @@
 # kinegen design
 
-kinegen is a parton-level kinematic generator for synthetic pretraining and
-meta-learning. It keeps the spirit of the original `myGenerator.h`/`test.cc`
+kinegen is a kinematic generator for synthetic pretraining and meta-learning: a
+parton-level hard process with explicit decay trees, plus an optional final-state
+parton shower, underlying event and jet clustering. Every YAML key, default and
+parameter name is listed in [REFERENCE.md](REFERENCE.md); this file explains the
+models. It keeps the spirit of the original `myGenerator.h`/`test.cc`
 (fast, two-body/three-body phase space, no matrix elements) and restructures it
 around four stages:
 
@@ -51,8 +54,11 @@ for (uint64_t i = 0; i < 1000; ++i) {
 
 ## Randomness and reproducibility
 
-All random numbers come from `kg::Rng` (xoshiro256** seeded through SplitMix64).
-`std::*_distribution` is not used, so results do not depend on the standard library.
+All random numbers come from `kg::Rng` (xoshiro256** seeded through SplitMix64), and
+`std::*_distribution` is not used, so the random streams do not depend on the standard library.
+Sampling also calls libm functions (`log`, `exp`, `erf`, `pow`, trigonometric functions), whose
+last bits can differ between platforms and compilers: results are bit-for-bit reproducible on the
+same platform and toolchain, and statistically identical elsewhere.
 Seeds are derived, never shared:
 
 | Stream | Seed |
@@ -86,7 +92,8 @@ Consequences:
 
 ## Parameters
 
-Every number in a prior is a `ParamDef` in a `ParamSet` (`kg/Param.h`):
+Almost every number in a prior is a `ParamDef` in a `ParamSet` (`kg/Param.h`; process `weight`s
+are plain numbers):
 
 ```yaml
 mass: 172.5                                       # fixed
@@ -98,19 +105,23 @@ mass: {dist: gaussian, mean: 91, sigma: 1, scope: event} # re-drawn every event
 
 Distributions: `fixed`, `uniform`, `loguniform`, `gaussian`, `truncated_gaussian`, `breit_wigner`
 (optionally `relativistic`), `categorical` (`values`, `weights`), `exponential` (`scale`, `offset`),
-`poisson` (`mean`).
+`poisson` (`mean`); keys, aliases and defaults are tabulated in REFERENCE.md.
 Expressions support `+ - * / ^`, parentheses, `min max sqrt abs log exp pow`, and reference any
-parameter by name. A bare particle name in `ratio_of` means its mass.
+parameter by name; identifiers must match `[A-Za-z_][A-Za-z0-9_.]*`, so parameters of particles
+named e.g. `W+` can only be referenced through `ratio_of`. A bare particle name in `ratio_of` or
+an expression means its mass.
 
 Inline parameters are named by convention, which is also how tasks and environments bind them
-after deserialisation: `<particle>.mass`, `<particle>.width`, `<particle>.decay<i>.br`,
-`<particle>.decay<i>.angular.c<k>`, `process.<name>.angular.c<k>`, `initial_state.<field>`,
-`detector.<type>.<field>`, `detector.fakes.<field>`, `detector.met.<field>`,
-`feature.<name>.<field>`. Named free parameters go in a top-level `parameters:` map.
+after deserialisation (e.g. `<particle>.mass`, `<particle>.decay<i>.br`,
+`process.<name>.sub<i>.weight`, `initial_state.recoil_n_jets`, `detector.<type>.eff_pt50`,
+`feature.<name>.<field>`); the complete list, including the few names that differ from the YAML
+keys, is in [REFERENCE.md](REFERENCE.md#parameter-names). Named free parameters go in a top-level
+`parameters:` map. Physics, detector and feature parameters are three separate sets: detector and
+feature expressions cannot reference physics parameters, and vice versa.
 
 `ParamSet::compile()` topologically sorts dependencies (cycles are errors) and propagates event
 scope: anything depending on an event-scoped parameter is event-scoped. Branching fractions,
-angular coefficients, process weights and feature parameters must be task-level.
+angular coefficients and feature parameters must be task-level.
 
 ## Physics definition
 
@@ -135,15 +146,18 @@ particles:
   N: {mass: 100, visible: false}   # any invisible BSM state
 ```
 
-* Names are arbitrary strings. Object types default from the PDG id (`jet`, `bjet`, `electron`,
-  `muon`, `tau`, `photon`, `invisible`); unknown visible PDG ids require an explicit `object:`.
+* Names are arbitrary strings (but see the expression caveat above). Object types default from the
+  PDG id (`jet`, `bjet`, `electron`, `muon`, `tau`, `photon`, `invisible`); unknown visible PDG ids
+  require an explicit `object:`. Charge, mass and width are never taken from the PDG id: they default
+  to 0 unless given.
 * Decays form an explicit graph: each mode lists daughters, a branching fraction, an angular model
   and, for three-body decays, `model: phase_space` (uniform Dalitz density, default) or
   `legacy_sequential` (myGenerator's `0 → 1 Y, Y → 2 3` with uniform `m_Y`).
 * Angular models (`kg::AngularModel`) give the density of cos θ* of the first daughter in the parent
   rest frame about the `helicity` axis (parent flight direction, default for decays) or the `beam`
   axis (default for production): `isotropic` or `polynomial` with `coeffs` c₀…cₙ
-  (f = Σ cᵢ cosⁱθ, validated non-negative). `W` reproduces myGenerator's `1 − cos θ` mode. For
+  (f = Σ cᵢ cosⁱθ, validated non-negative); `flat` is an alias of `isotropic`. `W` (alias
+  `w_leptonic`) reproduces myGenerator's `1 − cos θ` mode and always uses the beam axis. For
   three-body decays the configuration is rolled uniformly about the first daughter's direction.
 * Masses with `width > 0` are drawn per event from a relativistic Breit-Wigner, truncated exactly
   (inverse CDF) to `[threshold, M + bw_cutoff·Γ]` and, below, to `M − bw_cutoff·Γ`
@@ -171,6 +185,10 @@ production: [A, B]     # shorthand for a single process
 multi-jet samples (V + 0/1/2 jets, tt̄ + 0/1 jet) with the extra partons produced in the hard
 process (two- or three-body phase space above `threshold_offset`), unlike the soft independent recoil
 jets. The process (and hence the pretraining family label) is the same for all alternatives.
+
+Production `choice` slots and `multiplicity` are resolved once per task (they define the task's
+topology); the component, the subprocess and (unless `decay_choice: task`) the decay modes are
+drawn per event.
 
 Task assembly:
 
@@ -204,7 +222,10 @@ y = ½ ln(x₁/x₂). ln τ is drawn exactly above the threshold from the tabula
 efficient for any mass) and y from its conditional density, which also gives single resonances a
 mass-dependent rapidity distribution. `exponential_pdf` is the legacy luminosity model: x₁, x₂ ~ Exp(τ) on (0, 1] with
 τ = tau + tau_slope·threshold/TeV, accepted when √ŝ ≥ Σm + threshold_offset. For a single resonance
-the rapidity is drawn from the same density conditional on x₁x₂ = m²/s.
+the rapidity is drawn from the same density conditional on x₁x₂ = m²/s. With a single produced
+particle √ŝ is always that particle's (Breit-Wigner) mass, so `fixed`, `uniform` and
+`threshold_exponential` settings and `threshold_offset` only matter for two- and three-body
+production; without `from_pdf` the rapidity is the `rapidity` parameter (default 0).
 
 The recoil (ISR) consists of `n_jets` massless jets (default 1; 0 is allowed and leaves the hard
 system with no transverse momentum). Each jet draws its own pT (`exponential`: min_pt +
@@ -242,8 +263,10 @@ The shower is leading-logarithmic and angular ordered: each parton emits with de
 g → gg, softer-daughter fraction z ≤ ½), generated with the veto algorithm; daughters continue at
 smaller angles. Each splitting conserves energy and balances transverse momentum around the parent
 direction, so a pair has mass² ≈ z(1−z)E²θ². Massive quarks do not radiate inside their dead cone
-θ < m/E. Colour coherence: the two partons of a colour-singlet decay (W, Z, H, any neutral
-colourless parent → q q̄) radiate only inside their opening angle. The shower partons are stored in
+θ < m/E. Colour coherence: when a parent that is not coloured decays into exactly two showering
+partons (W± → q q̄′, Z, H, a colourless BSM state), both radiate only inside their opening angle.
+"Coloured" means |pdg| ≤ 8, 21 or a coloured SUSY partner, so a parent without a `pdg` (0) counts
+as coloured and gets no restriction: give BSM parents a PDG id. The shower partons are stored in
 `TruthEvent::shower` (parent index, pdg, four-vector); the hard truth particles are unchanged.
 Parameters are ordinary parameters (`parton_shower.<name>`) and can be randomised per task or
 event.
@@ -256,8 +279,8 @@ inputs (what anti-kT does with soft particles), and the rest is unclustered ener
 gains ≈ density · πR² of pT and mass² ≈ density · pT · πR⁴/2. Only the density matters for jets.
 
 Defaults (shower and underlying event together) were calibrated to COLLIDE-1M (Pythia 8)
-generator-level QCD jets: the 10–90 % quantiles of m/pT for anti-kT R = 0.4 jets between 30 GeV and
-1 TeV and R = 0.8 jets above 300 GeV agree within 5 % on average.
+generator-level QCD jets: the 10, 25, 50, 75 and 90 % quantiles of m/pT for anti-kT R = 0.4 jets
+between 30 GeV and 1 TeV and R = 0.8 jets above 300 GeV agree within 5 % on average.
 
 Jets are built by the detector from these partons (see `detector.jets` below), so QCD jets get a
 Sudakov-shaped mass of order m/pT ≈ 0.1 and boosted W/Z/H/top decays merged into one large-radius jet
@@ -288,7 +311,7 @@ mean a perfect detector):
 
 | Field | Meaning |
 |---|---|
-| `efficiency: {plateau, pt50, width}` or a number | ε(pT) = plateau · ½[1 + erf((pT − pt50)/(√2·width))] |
+| `efficiency: {plateau, pt50, width}` or a number | ε(pT) = plateau · ½[1 + erf((pT − pt50)/(√2·width))]; a step at pt50 when width = 0 (the default) |
 | `eta_max`, `pt_min` | acceptance; `pt_min` of the *reconstructed* type is applied after smearing |
 | `resolution: {stochastic, constant, noise, pt_term}` | σ/E = √(a²/E + b² + c²/E² + (d·pT)²) |
 | `scale` | response scale (four-vector multiplied by scale·(1 + σ·N(0,1))) |
@@ -339,7 +362,8 @@ correlation-group shift like any other object; invisible descendants (neutrinos)
 The same mechanism gives merged large-radius jets (`W -> q q` with `reconstruct_as: fatjet`). With
 nested composites the outermost one wins. Observed objects carry `n_constituents` and `n_charged`
 (prong count), available as `observed_proxy` feature quantities and as `n_constituents`/`n_charged`
-arrays in `generate_batch`; truth particles record `reconstruct_as`. Without composite modes the
+arrays in `generate_batch` (for hadronic taus the charges of the decay products must be set in the
+prior, since charges are not inferred from PDG ids); truth particles record `reconstruct_as`. Without composite modes the
 detector output is unchanged.
 
 Correlated response (`detector.correlations`), e.g. a jet energy scale shared by light and b jets:
@@ -375,7 +399,10 @@ A collection with `in_met: true` (default) replaces its input candidates by its 
 receive the response of `type` and enter the MET; an input type may be consumed by at most one such
 collection. A collection with `in_met: false` is an independent view (e.g. large-radius jets next to
 small-radius ones): its jets are reconstructed with their own random stream and added to the event
-without changing other objects or the MET. Clustered objects carry `n_constituents` (shower partons),
+without changing other objects or the MET. Candidates of types not listed in `inputs` are not clustered: with a shower, b quarks (default type
+`bjet`) need `inputs: [jet, bjet]` or `b: {object: jet}`, and composite (`reconstruct_as`) objects
+are never clustered. Clustered objects carry `n_constituents` (shower partons and underlying-event
+particles),
 `n_partons` (distinct hard truth partons, e.g. 2 for a merged W → q q̄, 3 for a merged top; the
 underlying event does not count) and
 `truth_index` of the parton with the largest energy share. Jets that contain shower partons get the
@@ -387,13 +414,18 @@ given instead, binned in true pT:
 relative resolution per bin); then m = m_true · mass_scale · scale[b] · max(0, 1 + mass_resolution ·
 resolution[b] · N(0,1)), with mass_resolution defaulting to 1 (a factor on the map's resolution).
 
-`fakes: {rate, types, pt_min, pt_scale, eta_max}` adds Poisson(rate) fake objects with
-pT = pt_min + Exp(pt_scale), uniform η and φ. `met: {soft_sigma, sumet_coeff, recoil_scale,
+`fakes: {rate, types, pt_min, pt_scale, eta_max}` adds Poisson(rate) fake objects of a type drawn
+from `types` (type → relative weight; required when rate > 0), massless, with pT = pt_min +
+Exp(pt_scale), uniform in |η| < eta_max and in φ. Fakes bypass efficiency, smearing,
+misidentification and `pt_min`, and enter the MET and ΣET. `met: {soft_sigma, sumet_coeff, recoil_scale,
 recoil_resolution, lost_to_met}` reconstructs
 
   MET = −[Σ observed pT + (1 − lost_to_met)·Σ lost-visible pT + recoil_scale·(1 + recoil_resolution·N)·pT(recoil)] + N(0, √(soft_sigma² + sumet_coeff²·ΣET))
 
-which equals the true invisible pT for a perfect detector (tested). Objects are sorted by pT unless
+which equals the true invisible pT for a perfect detector (tested). ΣET is the scalar pT sum of the
+observed objects that enter the MET (fakes included, `in_met: false` collections excluded) plus the
+magnitude of the unclustered recoil. With the default `lost_to_met: 1` objects that are not
+reconstructed are not subtracted, so their momentum appears as MET; `0` subtracts them. Objects are sorted by pT unless
 `sort_by_pt: false`. Detector values outside their physical range (e.g. a sampled efficiency above
 one) are errors, not clipped; use `truncated_gaussian` priors.
 
@@ -417,7 +449,10 @@ features:
 ```
 
 Truth quantities: `pt eta phi m e px py pz charge pdg is_fake depth branch parent_pdg parent_mass`;
-observed quantities additionally include `n_constituents` and `n_charged`.
+observed quantities: `pt eta phi m e px py pz charge n_constituents n_charged n_partons`. Proxies
+are x + bias + rel_sigma·|x|·N(0,1) + abs_sigma·N(0,1); with `fake_policy: missing` (default) fakes
+get NaN (except `quantity: is_fake`, which gives 1), with `observed` the observed value. Environment
+features use the per-event value of event-scoped detector parameters.
 Labels: `component`, `process`, `truth_type` (truth particle name or `fake`), `parent`, `is_fake`.
 For label-correlated features a shift per category is drawn once per task, so both the presence
 and the strength of a spurious correlation vary between tasks. `missing_prob` blanks values per
@@ -426,7 +461,8 @@ feature from a task's schema. Truth ancestry is never exposed as a feature unles
 
 ## Validation
 
-Static (at `parsePrior`): unknown keys, unknown particles/daughters, more than three daughters or
+Static (at `parsePrior`): unknown keys at every level (including parameter, distribution,
+efficiency, resolution, fakes, MET and multiplicity maps), unknown particles/daughters, more than three daughters or
 produced particles, cyclic decay graphs (the cycle is printed), stable/decays contradictions,
 uninferable object types, fixed BRs outside [0, 1] or not summing to one (unless
 `normalize_br: true`), event-scoped BRs/angles/feature parameters, impossible component counts,
@@ -436,30 +472,34 @@ Per task (`validateTask`, `InvalidTask`): sampled BR sums, negative masses/width
 polynomials, kinematically forbidden decays (narrow parents below the sum of daughter minima,
 recursively, worst case over modes), thresholds beyond the Breit-Wigner cutoff, production
 thresholds above the collider energy, invalid sampled detector values. With
-`task.validation: reject` invalid draws are redrawn (conditioning the prior on validity); otherwise,
-or after `max_attempts`, an error is raised. Nothing is silently clipped or rescaled.
+`task.validation: reject` invalid draws are redrawn (conditioning the prior on validity); otherwise
+(`max_attempts` is then ignored), or after `max_attempts` draws, an error is raised. Nothing is silently clipped or rescaled.
 
 Per event: event-scoped parameters that violate thresholds raise `std::runtime_error`.
 
 ## Output
 
-ROOT (`kg::RootWriter`, `kg-generate --out`): `events` (ids, label, `obj_*` vectors, `obj_feat`
-flattened with `n_feat` per object, MET, truth arrays `truth_*` unless `--no-truth`), `tasks`
-(ids, seeds, topology, processes and fractions, feature names, object types, all parameter values,
-full task YAML) and `environments` (id, seed, parameters, YAML). The legacy format writes the
-original `test` and `info` trees.
+ROOT (`kg::RootWriter`, `kg-generate --out`): `events` (ids, `component` = the event label, `obj_*`
+vectors with `obj_type` an index into `tasks.object_types`, `obj_feat` flattened with `n_feat` per
+object, MET and ΣET, object counts, true MET, √ŝ, truth arrays `truth_*` unless `--no-truth`),
+`tasks` (ids, seeds, topology, processes and fractions, feature names, object types, all parameter
+values, full task YAML) and `environments` (id, seed, parameters, YAML). The ROOT trees do not
+contain `n_constituents`, `n_charged`, `n_partons`, `true_type`, the subprocess or the shower and
+underlying-event particles. The legacy format writes the original `test` and `info` trees. The
+full branch list is in [REFERENCE.md](REFERENCE.md#output-formats).
 
-Python (`kinegen.generate_batch`) returns padded NumPy arrays: `p4`, `ptetaphim` (n, M, 4),
-`type` (−1 padding), `mask`, `features` (NaN = missing or padding), `truth_index`, `is_fake`,
-`n_constituents`, `n_charged`, `n_partons`, `met`,
-`label`, `n_objects`, `event_index`, plus `feature_names` and `object_types`. Generation releases
-the GIL and can use several threads.
+Python (`kinegen.generate_batch`) returns padded NumPy arrays (`p4`, `ptetaphim`, `type`, `mask`,
+`features`, `truth_index`, `is_fake`, `charge`, `n_constituents`, `n_charged`, `n_partons`, `met`,
+`label`, `n_objects`, `event_index`, truth summaries such as `truth_met` and `sqrt_s_hat`, and
+optionally the truth events), releasing the GIL so that several threads can be used. Shapes, dtypes
+and the rest of the Python API are in [REFERENCE.md](REFERENCE.md#python-api).
 
 ## Splits
 
 `SplitSpec{by, fractions, salt, parameter, edges, labels}`: `Task`, `Topology`, `Process` and
 `Environment` modes hash a key (so e.g. a topology is never split across train and test);
-`Parameter` bins a task-level parameter (e.g. `X.mass` below/above 1.5 TeV).
+`Parameter` bins a task-level parameter (e.g. `X.mass` below/above 1.5 TeV). Default fractions are
+train/val/test = 0.8/0.1/0.1; the salt and bin conventions are in REFERENCE.md.
 
 ## Compatibility
 
