@@ -202,7 +202,7 @@ detector:
     muon:
       efficiency: {plateau: 0.99, pt50: 4, width: 1}
       pt_min: 3
-      eta_max: 2.1
+      eta_max: 2.8   # COLLIDE MuonTight acceptance
       resolution: {constant: 0.0125, pt_term: 0.0001225}
       sigma_eta: 0.001
       sigma_phi: 0.001
@@ -226,7 +226,7 @@ detector:
     photon:
       efficiency: {plateau: 0.875, pt50: 10, width: 3}
       pt_min: 10
-      eta_max: 2.5
+      eta_max: 3.0   # COLLIDE PhotonTight acceptance
       resolution: {stochastic: 0.1, constant: 0.01}
       sigma_eta: 0.002
       sigma_phi: 0.002
