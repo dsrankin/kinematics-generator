@@ -1,0 +1,95 @@
+# Jet masses: QCD jets and boosted heavy particles.
+#
+# The final-state parton shower (`parton_shower`) gives every quark and gluon a collinear spray of
+# partons, and the detector clusters them with anti-kT into small-radius jets (R = 0.4, which
+# enter MET) and, independently, large-radius jets (R = 0.8, an extra collection). QCD jets get a
+# Sudakov-shaped mass of order alpha_s-suppressed m/pT ~ 0.1, while the decay partons of boosted
+# W, Z, H and top quarks merge into one large-radius jet whose mass reconstructs the parent mass
+# (observed objects carry `n_partons`, the number of hard partons in the jet).
+name: jet_substructure
+seed: 7
+
+particles:
+  Zp:                     # heavy resonance producing boosted bosons and tops
+    pdg: 9000023
+    mass: {dist: uniform, min: 1500, max: 3000}
+    width: 10
+    decays:
+      - {daughters: [W, W], br: 0.3}
+      - {daughters: [Z, H], br: 0.3}
+      - {daughters: [t, t], br: 0.4}
+  W:
+    pdg: 24
+    mass: 80.4
+    width: 2.09
+    decays:
+      - {daughters: [q, q], br: 1.0}
+  Z:
+    pdg: 23
+    mass: 91.19
+    width: 2.5
+    decays:
+      - {daughters: [q, q], br: 1.0}
+  H:
+    pdg: 25
+    mass: 125.0
+    width: 0.004
+    decays:
+      - {daughters: [b, b], br: 1.0}
+  t:
+    pdg: 6
+    mass: 172.5
+    width: 1.42
+    decays:
+      - {daughters: [W, b], br: 1.0}
+  q: {pdg: 1}
+  g: {pdg: 21}
+  b: {pdg: 5, mass: 4.7, object: jet}
+
+processes:
+  - name: resonance
+    production: [Zp]
+  - name: dijet
+    subprocesses:
+      - {production: [q, q], weight: 0.4}
+      - {production: [g, g], weight: 0.6}
+
+initial_state:
+  sqrt_s: {model: pdf, ebeam: 6500, a: 1.7, b: 2.0, threshold_offset: 600}
+  recoil: {model: exponential, min_pt: 10, mean_pt: 30}
+
+parton_shower:
+  # Defaults calibrated on 2026-10-22 to COLLIDE-1M (Pythia 8) QCD generator-level jets (|eta| < 2.4):
+  # the 10/25/50/75/90 % quantiles of m/pT of anti-kT R = 0.4 jets from 30 GeV to 1 TeV and of
+  # R = 0.8 jets above 300 GeV agree within 7 % on average (R = 0.8 low tail ~25 % low: no
+  # underlying event).
+  alpha_s: 0.13           # effective alpha_s(mZ) of the leading-log shower (one-loop running)
+  kt_min: 1.0             # GeV: shower cutoff
+  hadron_mass: 0.5        # GeV: mass of each final shower parton
+  hadron_shift: 2.5       # GeV: jet mass^2 += hadron_shift * (C_i / C_F) * pT * R (hadronisation)
+  theta_max: 1.0          # largest emission angle (colour-singlet decay partons: their opening angle)
+
+task:
+  components: 1
+
+detector:
+  objects:
+    jet:
+      efficiency: 1.0
+      pt_min: 20
+      eta_max: 4.7
+      resolution: {stochastic: 0.8, constant: 0.05}
+      mass_resolution: 0.08     # extra relative smearing of the jet mass
+    fatjet:
+      efficiency: 1.0
+      pt_min: 200
+      eta_max: 2.5
+      resolution: {stochastic: 0.8, constant: 0.05}
+      mass_scale: {dist: uniform, min: 0.97, max: 1.03}
+      mass_resolution: 0.08
+  jets:
+    - {type: jet, radius: 0.4}                            # consumes the partons; enters MET
+    - {type: fatjet, radius: 0.8, in_met: false}          # extra view of the same partons
+  met:
+    soft_sigma: 5
+    sumet_coeff: 0.5

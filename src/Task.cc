@@ -181,6 +181,13 @@ void validateTask(const TaskConfig &t) {
     if (!(c.fraction >= 0)) fail("component '" + c.process + "' has a negative fraction");
   }
   if (is.recoil != RecoilModel::None && !(v[is.recoil_n_jets] >= 0)) fail("initial_state.recoil: n_jets must be >= 0");
+  if (t.shower.enabled) {
+    if (!(v[t.shower.alpha_s] > 0 && v[t.shower.alpha_s] < 1)) fail("parton_shower: alpha_s must be in (0, 1)");
+    if (!(v[t.shower.kt_min] > 0)) fail("parton_shower: kt_min must be > 0");
+    if (!(v[t.shower.theta_max] > 0 && v[t.shower.theta_max] <= M_PI)) fail("parton_shower: theta_max must be in (0, pi]");
+    if (t.shower.hadron_mass >= 0 && !(v[t.shower.hadron_mass] >= 0)) fail("parton_shower: hadron_mass must be >= 0");
+    if (t.shower.hadron_shift >= 0 && !(v[t.shower.hadron_shift] >= 0)) fail("parton_shower: hadron_shift must be >= 0");
+  }
   if (is.recoil == RecoilModel::Exponential && !(v[is.recoil_mean] > v[is.recoil_min] && v[is.recoil_min] >= 0))
     fail("initial_state.recoil: requires mean_pt > min_pt >= 0");
 }
@@ -203,6 +210,7 @@ TaskConfig sampleTask(const PriorConfig &prior, uint64_t master_seed, int64_t in
     t.task_index = index;
     t.attempts = attempt;
     t.initial = prior.initial;
+    t.shower = prior.shower;
     t.bw_cutoff = prior.bw_cutoff;
     t.object_types = prior.objectTypes();
     try {

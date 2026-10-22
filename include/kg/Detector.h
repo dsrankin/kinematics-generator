@@ -39,8 +39,20 @@ struct ResponseDef {
   int stochastic = -1, constant = -1, noise = -1, pt_term = -1;
   int scale = -1, sigma_eta = -1, sigma_phi = -1;
   int resolution_scale = -1; // multiplies the map's resolution (domain randomisation around a measurement)
+  int mass_scale = -1, mass_resolution = -1; // optional extra mass response (-1: mass scales with pT only)
   std::vector<std::pair<std::string, int>> misid; // reconstructed-as type -> probability
   std::shared_ptr<const ResponseMap> map;         // optional binned response
+};
+
+// One jet collection: anti-kT clustering of the reconstruction candidates of the `inputs` types
+// (after the parton shower) into objects of `type`. A collection with in_met consumes its inputs
+// (they are replaced by the jets and enter MET); otherwise it is an extra view of the same
+// candidates (e.g. large-radius jets) that is reconstructed independently and not added to MET.
+struct ClusteringDef {
+  std::string type;
+  std::vector<std::string> inputs; // default: {"jet"}
+  int radius = -1;                 // parameter "detector.jets.<type>.radius"
+  bool in_met = true;
 };
 
 struct FakeDef {
@@ -66,6 +78,7 @@ struct DetectorPrior {
   ParamSet params;
   std::vector<CorrelationDef> correlations;
   std::map<std::string, ResponseDef> objects; // may contain "default"
+  std::vector<ClusteringDef> jets;            // empty: every candidate is its own object
   FakeDef fakes;
   MetDef met;
   bool sort_by_pt = true;
@@ -84,6 +97,8 @@ struct Response {
   double stochastic = 0, constant = 0, noise = 0, pt_term = 0;
   double scale = 1, sigma_eta = 0, sigma_phi = 0;
   double resolution_scale = 1;
+  bool smear_mass = false; // mass_scale / mass_resolution given
+  double mass_scale = 1, mass_resolution = 0;
   std::vector<std::pair<std::string, double>> misid;
   std::shared_ptr<const ResponseMap> map;
 
@@ -101,8 +116,16 @@ struct CorrelationGroup {
   double scale_sigma = 0, rho = 0;
 };
 
+struct Clustering {
+  std::string type;
+  std::vector<std::string> inputs;
+  double radius = 0.4;
+  bool in_met = true;
+};
+
 struct DetectorState {
   std::map<std::string, Response> objects;
+  std::vector<Clustering> jets;
   std::vector<CorrelationGroup> groups;
   std::map<std::string, int> group_of; // object type -> index into groups
   Response fallback; // "default" entry, or a perfect detector

@@ -4,6 +4,7 @@
 #include <numeric>
 
 #include "kg/Generator.h"
+#include "kg/Jets.h"
 
 namespace kg {
 
@@ -55,6 +56,7 @@ double observedQuantity(const ObservedObject &o, const std::string &q) {
   if (q == "charge") return o.charge;
   if (q == "n_constituents") return o.n_constituents;
   if (q == "n_charged") return o.n_charged;
+  if (q == "n_partons") return o.n_partons;
   return kNaN;
 }
 
@@ -150,14 +152,26 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   // Reconstruction candidates: visible final-state particles, except that the
   // visible descendants of a particle decayed through a `reconstruct_as` mode are
   // merged into one composite object (e.g. a hadronic tau). The outermost merging
-  // ancestor wins. Without composite modes this is exactly the list of visible
-  // final-state particles in index order.
+  // ancestor wins. Without composite modes, shower or jet clustering this is exactly
+  // the list of visible final-state particles in index order.
+  //
+  // With a parton shower, a showered parton is represented by its shower partons: they
+  // are summed into one candidate (no clustering, or inside a composite) or passed as
+  // separate pieces to the jet clustering of `detector.jets`, which replaces the
+  // candidates of its input types by anti-kT jets (in_met collections) or adds an
+  // independent collection (e.g. large-radius jets) that does not enter MET.
   struct Candidate {
     int index;
     P4 p4;
     double charge;
     std::string type;
-    int n_constituents, n_charged;
+    int n_constituents, n_charged, n_partons;
+  };
+  struct Piece {
+    P4 p4;
+    int index;
+    double charge;
+    std::string type;
   };
   const size_t np = truth.particles.size();
   std::vector<int> owner(np, -1);
@@ -165,7 +179,21 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     const int par = truth.particles[i].parent;
     if (par >= 0) owner[i] = owner[par] >= 0 ? owner[par] : (truth.particles[par].reconstruct_as.empty() ? -1 : par);
   }
+  std::vector<std::pair<size_t, size_t>> showerOf(np, {0, 0}); // [begin, end) in truth.shower
+  for (size_t k = 0; k < truth.shower.size();) {
+    size_t e = k;
+    while (e < truth.shower.size() && truth.shower[e].parent == truth.shower[k].parent) ++e;
+    showerOf.at(truth.shower[k].parent) = {k, e};
+    k = e;
+  }
+  auto clustered = [&](const std::string &type, bool consumingOnly) {
+    for (const auto &j : ds.jets)
+      if ((!consumingOnly || j.in_met) && std::find(j.inputs.begin(), j.inputs.end(), type) != j.inputs.end()) return true;
+    return false;
+  };
+  const ShowerSettings shower = showerSettings(t, t.values);
   std::vector<Candidate> cands;
+  std::vector<Piece> pieces;
   std::vector<int> compositeSlot(np, -1);
   for (size_t i = 0; i < np; ++i) {
     const TruthParticle &p = truth.particles[i];
@@ -176,27 +204,79 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     }
     if (owner[i] < 0 && !p.reconstruct_as.empty()) {
       compositeSlot[i] = static_cast<int>(cands.size());
-      cands.push_back({p.index, P4(), 0.0, p.reconstruct_as, 0, 0});
+      cands.push_back({p.index, P4(), 0.0, p.reconstruct_as, 0, 0, 1});
       continue;
     }
     if (!p.visible()) continue;
+    const auto sh = showerOf[i];
+    const int nsh = static_cast<int>(sh.second - sh.first);
+    P4 total = p.p4;
+    if (nsh > 0) {
+      total = P4();
+      for (size_t k = sh.first; k < sh.second; ++k) total += truth.shower[k].p4;
+    }
     if (owner[i] >= 0) {
       Candidate &c = cands[compositeSlot[owner[i]]];
-      c.p4 += p.p4;
+      c.p4 += total;
       c.charge += p.charge;
-      ++c.n_constituents;
+      c.n_constituents += std::max(nsh, 1);
       c.n_charged += p.charge != 0;
       continue;
     }
-    cands.push_back({p.index, p.p4, p.charge, p.object_type, 1, p.charge != 0 ? 1 : 0});
+    if (clustered(p.object_type, false)) {
+      // Shower partons as pieces; the parton's charge rides on its first (hardest-branch) piece.
+      if (nsh > 0)
+        for (size_t k = sh.first; k < sh.second; ++k)
+          pieces.push_back({truth.shower[k].p4, p.index, k == sh.first ? p.charge : 0.0, p.object_type});
+      else
+        pieces.push_back({p.p4, p.index, p.charge, p.object_type});
+      if (clustered(p.object_type, true)) continue;
+    }
+    if (nsh > 0) total = hadronisedJet(total, p.pdg, shower.theta_max, shower); // whole shower = one jet
+    cands.push_back({p.index, total, p.charge, p.object_type, std::max(nsh, 1), p.charge != 0 ? 1 : 0, 1});
   }
 
-  for (const Candidate &c : cands) {
-    if (c.n_constituents == 0) continue; // composite with only invisible descendants
+  // Jet clustering: one candidate per anti-kT jet of each collection. Jets made of shower
+  // partons receive the shower's non-perturbative mass shift.
+  std::vector<Candidate> overlay;
+  for (const auto &jc : ds.jets) {
+    std::vector<P4> in;
+    std::vector<int> sel;
+    for (size_t k = 0; k < pieces.size(); ++k)
+      if (std::find(jc.inputs.begin(), jc.inputs.end(), pieces[k].type) != jc.inputs.end()) {
+        in.push_back(pieces[k].p4);
+        sel.push_back(static_cast<int>(k));
+      }
+    for (const auto &members : antiKtCluster(in, jc.radius)) {
+      Candidate c{-1, P4(), 0.0, jc.type, 0, 0, 0};
+      std::vector<std::pair<int, double>> share; // truth index -> energy in this jet
+      for (int m : members) {
+        const Piece &pc = pieces[sel[m]];
+        c.p4 += pc.p4;
+        c.charge += pc.charge;
+        ++c.n_constituents;
+        c.n_charged += pc.charge != 0;
+        auto it = std::find_if(share.begin(), share.end(), [&](const std::pair<int, double> &x) { return x.first == pc.index; });
+        if (it == share.end()) share.emplace_back(pc.index, pc.p4.e);
+        else it->second += pc.p4.e;
+      }
+      c.n_partons = static_cast<int>(share.size());
+      c.index = std::max_element(share.begin(), share.end(), [](const std::pair<int, double> &x, const std::pair<int, double> &y) {
+                  return x.second < y.second;
+                })->first;
+      if (showerOf[c.index].second > showerOf[c.index].first)
+        c.p4 = hadronisedJet(c.p4, truth.particles[c.index].pdg, jc.radius, shower);
+      (jc.in_met ? cands : overlay).push_back(std::move(c));
+    }
+  }
+
+  // Detector response of one candidate. Returns false if it is not reconstructed.
+  Rng mrng(mixSeed(out.detector_seed, kStreamMass));
+  auto reconstruct = [&](const Candidate &c, Rng &r_, ObservedObject &o) {
     const Response &r = ds.response(c.type);
     // Draw all random numbers up front so that later choices do not shift streams.
-    const double uEff = rng.uniform(), uMis = rng.uniform();
-    const double gE = rng.gauss(), gEta = rng.gauss(), gPhi = rng.gauss();
+    const double uEff = r_.uniform(), uMis = r_.uniform();
+    const double gE = r_.gauss(), gEta = r_.gauss(), gPhi = r_.gauss();
     const double pt = c.p4.pt(), eta = c.p4.eta();
     double eff, mean, sigma;
     r.lookup(c.p4.e, pt, eta, eff, mean, sigma);
@@ -212,29 +292,20 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
         }
       }
     }
-    P4 meas;
-    if (keep) {
-      double shift = 0, g = gE;
-      auto grp = ds.group_of.find(c.type);
-      if (grp != ds.group_of.end()) {
-        const double rho = ds.groups[grp->second].rho;
-        shift = groupShift[grp->second];
-        g = std::sqrt(rho) * groupCommon[grp->second] + std::sqrt(1 - rho) * gE;
-      }
-      const double f = r.scale * mean * (1.0 + shift) * (1.0 + sigma * g);
-      if (f <= 0) keep = false;
-      else {
-        meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(c.p4.phi() + r.sigma_phi * gPhi), std::max(0.0, c.p4.m()) * f);
-        if (meas.pt() < ds.response(type).pt_min) keep = false;
-      }
+    if (!keep) return false;
+    double shift = 0, g = gE;
+    auto grp = ds.group_of.find(c.type);
+    if (grp != ds.group_of.end()) {
+      const double rho = ds.groups[grp->second].rho;
+      shift = groupShift[grp->second];
+      g = std::sqrt(rho) * groupCommon[grp->second] + std::sqrt(1 - rho) * gE;
     }
-    if (!keep) {
-      ++out.n_lost;
-      lostx += c.p4.px;
-      losty += c.p4.py;
-      continue;
-    }
-    ObservedObject o;
+    const double f = r.scale * mean * (1.0 + shift) * (1.0 + sigma * g);
+    if (f <= 0) return false;
+    double m = std::max(0.0, c.p4.m()) * f;
+    if (r.smear_mass) m = std::max(0.0, m * r.mass_scale * (1.0 + r.mass_resolution * mrng.gauss()));
+    const P4 meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(c.p4.phi() + r.sigma_phi * gPhi), m);
+    if (meas.pt() < ds.response(type).pt_min) return false;
     o.p4 = meas;
     o.type = type;
     o.type_code = t.typeCode(type);
@@ -243,8 +314,27 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     o.true_type = c.type;
     o.n_constituents = c.n_constituents;
     o.n_charged = c.n_charged;
-    if (type != c.type) ++out.n_misid;
+    o.n_partons = c.n_partons;
+    return true;
+  };
+
+  for (const Candidate &c : cands) {
+    if (c.n_constituents == 0) continue; // composite with only invisible descendants
+    ObservedObject o;
+    if (!reconstruct(c, rng, o)) {
+      ++out.n_lost;
+      lostx += c.p4.px;
+      losty += c.p4.py;
+      continue;
+    }
+    if (o.type != c.type) ++out.n_misid;
     out.objects.push_back(std::move(o));
+  }
+  std::vector<ObservedObject> extra; // collections outside MET, added after it is computed
+  Rng orng(mixSeed(out.detector_seed, kStreamOverlay));
+  for (const Candidate &c : overlay) {
+    ObservedObject o;
+    if (reconstruct(c, orng, o)) extra.push_back(std::move(o));
   }
 
   // Fakes.
@@ -259,6 +349,7 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     o.type_code = t.typeCode(o.type);
     o.is_fake = true;
     o.true_type = "fake";
+    o.n_partons = 0;
     out.objects.push_back(std::move(o));
   }
   out.n_fakes = nf;
@@ -279,6 +370,7 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   out.met_x = -(sumx + keepLost * lostx + rs * recx) + soft * rng.gauss();
   out.met_y = -(sumy + keepLost * losty + rs * recy) + soft * rng.gauss();
   out.sum_et = sumEt;
+  for (auto &o : extra) out.objects.push_back(std::move(o));
 
   if (ds.sort_by_pt)
     std::stable_sort(out.objects.begin(), out.objects.end(), [](const ObservedObject &a, const ObservedObject &b) { return a.p4.pt() > b.p4.pt(); });

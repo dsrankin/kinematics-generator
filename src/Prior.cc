@@ -171,6 +171,36 @@ void registerInitialStateParams(const YAML::Node &n, ParamSet &ps) {
   }
 }
 
+bool registerShowerParams(const YAML::Node &n, ParamSet &ps) {
+  if (!n || n.IsNull()) return false;
+  if (n.IsScalar()) {
+    const std::string v = n.as<std::string>();
+    if (v == "false" || v == "none") return false;
+    if (v != "true") throw std::invalid_argument("parton_shower: expected true, false, none or a map");
+  } else {
+    if (!n.IsMap()) throw std::invalid_argument("parton_shower: expected true, false, none or a map");
+    requireKeys(n, {"alpha_s", "kt_min", "theta_max", "hadron_mass", "hadron_shift"}, "parton_shower");
+  }
+  auto f = [&](const char *key, double def) {
+    ps.parseOr(n.IsMap() ? n[key] : YAML::Node(YAML::NodeType::Undefined), std::string("parton_shower.") + key, def);
+  };
+  f("alpha_s", 0.13);
+  f("kt_min", 1.0);
+  f("theta_max", 1.0);
+  f("hadron_mass", 0.5);
+  f("hadron_shift", 2.5);
+  return true;
+}
+
+void bindShowerParams(ShowerDef &s, const ParamSet &ps) {
+  s.alpha_s = ps.find("parton_shower.alpha_s");
+  s.kt_min = ps.find("parton_shower.kt_min");
+  s.theta_max = ps.find("parton_shower.theta_max");
+  s.hadron_mass = ps.find("parton_shower.hadron_mass");
+  s.hadron_shift = ps.find("parton_shower.hadron_shift");
+  s.enabled = s.alpha_s >= 0 && s.kt_min >= 0 && s.theta_max >= 0;
+}
+
 void bindInitialStateParams(InitialStateDef &is, const ParamSet &ps) {
   is.ebeam = ps.at("initial_state.ebeam");
   is.tau = ps.at("initial_state.tau");
@@ -326,7 +356,7 @@ void PriorConfig::validate() const {
 PriorConfig parsePrior(const YAML::Node &root) {
   if (!root || !root.IsMap()) throw std::invalid_argument("prior: top level must be a map");
   requireKeys(root, {"name", "seed", "parameters", "particles", "processes", "production", "initial_state", "task",
-                     "bw_cutoff", "detector", "features"},
+                     "bw_cutoff", "detector", "features", "parton_shower"},
               "prior");
   PriorConfig p;
   if (root["name"]) p.name = root["name"].as<std::string>();
@@ -504,8 +534,10 @@ PriorConfig parsePrior(const YAML::Node &root) {
     }
     if (t["max_attempts"]) p.task.max_attempts = t["max_attempts"].as<int>();
   }
+  registerShowerParams(root["parton_shower"], ps);
   ps.compile();
   bindInitialStateParams(p.initial, ps);
+  bindShowerParams(p.shower, ps);
   p.detector = parseDetectorPrior(root["detector"]);
   p.features = parseFeaturePrior(root["features"]);
   p.validate();

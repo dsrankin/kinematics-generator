@@ -135,6 +135,7 @@ std::string taskToYAML(const TaskConfig &t) {
   out << YAML::EndSeq;
   out << YAML::Key << "initial_state" << YAML::Value;
   emitInitialStateFlags(out, t.initial);
+  if (t.shower.enabled) out << YAML::Key << "parton_shower" << YAML::Value << true;
   out << YAML::Key << "object_types" << YAML::Value << YAML::Flow << t.object_types;
   out << YAML::Key << "features" << YAML::Value << YAML::BeginSeq;
   for (const auto &f : t.features) emitFeatureSpec(out, f);
@@ -213,6 +214,7 @@ TaskConfig taskFromYAML(const std::string &yaml) {
   t.initial.recoil_object = is["recoil_object"].as<std::string>();
   t.initial.max_attempts = is["max_attempts"].as<int>();
   bindInitialStateParams(t.initial, t.params);
+  if (n["parton_shower"] && n["parton_shower"].as<bool>()) bindShowerParams(t.shower, t.params);
   t.object_types = n["object_types"].as<std::vector<std::string>>();
   auto names = std::make_shared<std::vector<std::string>>();
   for (const auto &fn : n["features"]) {
@@ -280,7 +282,14 @@ std::string truthEventToYAML(const TruthEvent &ev) {
     if (!p.reconstruct_as.empty()) out << YAML::Key << "reconstruct_as" << YAML::Value << p.reconstruct_as;
     out << YAML::EndMap;
   }
-  out << YAML::EndSeq << YAML::EndMap;
+  out << YAML::EndSeq;
+  if (!ev.shower.empty()) {
+    out << YAML::Key << "shower" << YAML::Value << YAML::BeginSeq; // [parent, pdg, px, py, pz, e]
+    for (const auto &s : ev.shower)
+      out << YAML::Flow << std::vector<double>{double(s.parent), double(s.pdg), s.p4.px, s.p4.py, s.p4.pz, s.p4.e};
+    out << YAML::EndSeq;
+  }
+  out << YAML::EndMap;
   return std::string(out.c_str()) + "\n";
 }
 
@@ -317,6 +326,12 @@ TruthEvent truthEventFromYAML(const std::string &yaml) {
     if (pn["reconstruct_as"]) p.reconstruct_as = pn["reconstruct_as"].as<std::string>();
     ev.particles.push_back(std::move(p));
   }
+  if (n["shower"])
+    for (const auto &sn : n["shower"]) {
+      const auto v = sn.as<std::vector<double>>();
+      if (v.size() != 6) throw std::invalid_argument("truth event: shower entries are [parent, pdg, px, py, pz, e]");
+      ev.shower.push_back({static_cast<int>(v[0]), static_cast<int>(v[1]), P4(v[2], v[3], v[4], v[5])});
+    }
   return ev;
 }
 
@@ -355,6 +370,7 @@ std::string observedEventToYAML(const ObservedEvent &ev) {
     out << YAML::Key << "is_fake" << YAML::Value << o.is_fake;
     out << YAML::Key << "n_constituents" << YAML::Value << o.n_constituents;
     out << YAML::Key << "n_charged" << YAML::Value << o.n_charged;
+    if (o.n_partons != 1) out << YAML::Key << "n_partons" << YAML::Value << o.n_partons;
     out << YAML::EndMap;
   }
   out << YAML::EndSeq << YAML::EndMap;
@@ -392,6 +408,7 @@ ObservedEvent observedEventFromYAML(const std::string &yaml) {
     o.is_fake = on["is_fake"].as<bool>();
     if (on["n_constituents"]) o.n_constituents = on["n_constituents"].as<int>();
     if (on["n_charged"]) o.n_charged = on["n_charged"].as<int>();
+    if (on["n_partons"]) o.n_partons = on["n_partons"].as<int>();
     ev.objects.push_back(std::move(o));
   }
   return ev;

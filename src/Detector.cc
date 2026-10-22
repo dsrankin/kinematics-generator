@@ -72,6 +72,10 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
   r.sigma_eta = ps.parseOr(n["sigma_eta"], p + "sigma_eta", 0.0);
   r.sigma_phi = ps.parseOr(n["sigma_phi"], p + "sigma_phi", 0.0);
   r.resolution_scale = ps.parseOr(n["resolution_scale"], p + "resolution_scale", 1.0);
+  if (n["mass_scale"] || n["mass_resolution"]) {
+    r.mass_scale = ps.parseOr(n["mass_scale"], p + "mass_scale", 1.0);
+    r.mass_resolution = ps.parseOr(n["mass_resolution"], p + "mass_resolution", 0.0);
+  }
   if (n["response_map"]) r.map = parseResponseMap(n["response_map"], "detector." + type + ".response_map");
   if (n["misid"]) {
     if (!n["misid"].IsMap()) throw std::invalid_argument("detector." + type + ".misid must be a map type -> probability");
@@ -82,7 +86,8 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
     }
   }
   static const std::set<std::string> known = {"efficiency", "eff_pt50", "eff_width", "pt_min", "eta_max", "resolution",
-                                              "scale", "sigma_eta", "sigma_phi", "misid", "resolution_scale", "response_map"};
+                                              "scale", "sigma_eta", "sigma_phi", "misid", "resolution_scale", "response_map",
+                                              "mass_scale", "mass_resolution"};
   for (const auto &kv : n)
     if (!known.count(kv.first.as<std::string>()))
       throw std::invalid_argument("detector." + type + ": unknown key '" + kv.first.as<std::string>() + "'");
@@ -107,6 +112,7 @@ std::vector<std::string> DetectorPrior::objectTypes() const {
     for (const auto &m : kv.second.misid) s.insert(m.first);
   }
   for (const auto &t : fakes.types) s.insert(t.first);
+  for (const auto &j : jets) s.insert(j.type);
   return {s.begin(), s.end()};
 }
 
@@ -118,6 +124,28 @@ DetectorPrior parseDetectorPrior(const YAML::Node &n) {
     for (const auto &kv : n["objects"]) {
       const std::string type = kv.first.as<std::string>();
       d.objects[type] = parseResponse(kv.second, type, ps);
+    }
+  }
+  if (n && n["jets"]) {
+    if (!n["jets"].IsSequence()) throw std::invalid_argument("detector.jets must be a list of collections");
+    std::set<std::string> types, consumed;
+    for (const auto &jn : n["jets"]) {
+      for (const auto &k : jn)
+        if (!std::set<std::string>{"type", "inputs", "radius", "in_met"}.count(k.first.as<std::string>()))
+          throw std::invalid_argument("detector.jets: unknown key '" + k.first.as<std::string>() + "'");
+      ClusteringDef c;
+      if (!jn["type"]) throw std::invalid_argument("detector.jets: each collection needs a 'type'");
+      c.type = jn["type"].as<std::string>();
+      const std::string ctx = "detector.jets." + c.type;
+      if (!types.insert(c.type).second) throw std::invalid_argument(ctx + ": duplicate collection");
+      c.inputs = jn["inputs"] ? jn["inputs"].as<std::vector<std::string>>() : std::vector<std::string>{"jet"};
+      if (c.inputs.empty()) throw std::invalid_argument(ctx + ": 'inputs' must not be empty");
+      if (jn["in_met"]) c.in_met = jn["in_met"].as<bool>();
+      if (c.in_met)
+        for (const auto &t : c.inputs)
+          if (!consumed.insert(t).second) throw std::invalid_argument(ctx + ": input '" + t + "' is already consumed by another in_met collection");
+      c.radius = ps.parseOr(jn["radius"], ctx + ".radius", 0.4);
+      d.jets.push_back(std::move(c));
     }
   }
   const YAML::Node f = n ? n["fakes"] : YAML::Node(YAML::NodeType::Undefined);
@@ -165,7 +193,7 @@ DetectorPrior parseDetectorPrior(const YAML::Node &n) {
   if (n && n["sort_by_pt"]) d.sort_by_pt = n["sort_by_pt"].as<bool>();
   if (n)
     for (const auto &kv : n)
-      if (!std::set<std::string>{"objects", "fakes", "met", "correlations", "sort_by_pt"}.count(kv.first.as<std::string>()))
+      if (!std::set<std::string>{"objects", "jets", "fakes", "met", "correlations", "sort_by_pt"}.count(kv.first.as<std::string>()))
         throw std::invalid_argument("detector: unknown key '" + kv.first.as<std::string>() + "'");
   ps.compile();
   return d;
@@ -195,6 +223,8 @@ void emitDetectorPrior(YAML::Emitter &out, const DetectorPrior &d) {
     emitP(out, ps, "sigma_eta", r.sigma_eta);
     emitP(out, ps, "sigma_phi", r.sigma_phi);
     emitP(out, ps, "resolution_scale", r.resolution_scale);
+    if (r.mass_scale >= 0) emitP(out, ps, "mass_scale", r.mass_scale);
+    if (r.mass_resolution >= 0) emitP(out, ps, "mass_resolution", r.mass_resolution);
     if (r.map) {
       out << YAML::Key << "response_map" << YAML::Value << YAML::BeginMap;
       out << YAML::Key << "eta_edges" << YAML::Value << YAML::Flow << r.map->eta_edges;
@@ -217,6 +247,18 @@ void emitDetectorPrior(YAML::Emitter &out, const DetectorPrior &d) {
     out << YAML::EndMap;
   }
   out << YAML::EndMap;
+  if (!d.jets.empty()) {
+    out << YAML::Key << "jets" << YAML::Value << YAML::BeginSeq;
+    for (const auto &c : d.jets) {
+      out << YAML::BeginMap;
+      out << YAML::Key << "type" << YAML::Value << c.type;
+      out << YAML::Key << "inputs" << YAML::Value << YAML::Flow << c.inputs;
+      emitP(out, ps, "radius", c.radius);
+      out << YAML::Key << "in_met" << YAML::Value << c.in_met;
+      out << YAML::EndMap;
+    }
+    out << YAML::EndSeq;
+  }
   out << YAML::Key << "fakes" << YAML::Value << YAML::BeginMap;
   emitP(out, ps, "rate", d.fakes.rate);
   emitP(out, ps, "pt_min", d.fakes.pt_min);
@@ -304,6 +346,12 @@ DetectorState buildDetectorState(const DetectorPrior &d, const std::vector<doubl
     o.sigma_phi = v[r.sigma_phi];
     o.resolution_scale = v[r.resolution_scale];
     o.map = r.map;
+    if (r.mass_scale >= 0 || r.mass_resolution >= 0) {
+      o.smear_mass = true;
+      if (r.mass_scale >= 0) o.mass_scale = v[r.mass_scale];
+      if (r.mass_resolution >= 0) o.mass_resolution = v[r.mass_resolution];
+      check(o.mass_scale > 0 && o.mass_resolution >= 0, c, "mass_scale must be > 0 and mass_resolution >= 0");
+    }
     check(o.resolution_scale >= 0, c, "resolution_scale must be >= 0");
     check(o.efficiency >= 0 && o.efficiency <= 1, c, "efficiency must be in [0, 1], got " + std::to_string(o.efficiency));
     check(o.eff_width >= 0, c, "efficiency width must be >= 0");
@@ -324,6 +372,15 @@ DetectorState buildDetectorState(const DetectorPrior &d, const std::vector<doubl
   for (const auto &kv : d.objects) {
     if (kv.first == "default") s.fallback = build(kv.first, kv.second);
     else s.objects[kv.first] = build(kv.first, kv.second);
+  }
+  for (const auto &c : d.jets) {
+    Clustering j;
+    j.type = c.type;
+    j.inputs = c.inputs;
+    j.radius = v[c.radius];
+    j.in_met = c.in_met;
+    check(j.radius > 0 && j.radius < 3, ctx + " detector.jets." + c.type, "radius must be in (0, 3)");
+    s.jets.push_back(std::move(j));
   }
   s.fake_rate = v[d.fakes.rate];
   s.fake_pt_min = v[d.fakes.pt_min];

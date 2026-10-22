@@ -49,7 +49,7 @@ const std::set<std::string> &truthQuantities() {
   return q;
 }
 const std::set<std::string> &observedQuantities() {
-  static const std::set<std::string> q = {"pt", "eta", "phi", "m", "e", "px", "py", "pz", "charge", "n_constituents", "n_charged"};
+  static const std::set<std::string> q = {"pt", "eta", "phi", "m", "e", "px", "py", "pz", "charge", "n_constituents", "n_charged", "n_partons"};
   return q;
 }
 

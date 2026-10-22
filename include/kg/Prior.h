@@ -87,6 +87,12 @@ struct InitialStateDef {
   int recoil_n_jets = -1; // number of recoil (ISR) jets; each draws its own pT, rapidity and azimuth
 };
 
+// Final-state parton shower (see Jets.h). Parameters "parton_shower.<field>".
+struct ShowerDef {
+  bool enabled = false;
+  int alpha_s = -1, kt_min = -1, theta_max = -1, hadron_mass = -1, hadron_shift = -1; // parameter indices
+};
+
 struct TaskSamplingDef {
   Distribution n_components = Distribution::fixed(1);
   std::string fractions = "equal"; // equal | dirichlet | fixed
@@ -105,6 +111,7 @@ struct PriorConfig {
   std::map<std::string, int> particle_index;
   std::vector<ProcessDef> processes;
   InitialStateDef initial;
+  ShowerDef shower;
   TaskSamplingDef task;
   double bw_cutoff = 15; // truncate Breit-Wigner masses at +-bw_cutoff*width (MadGraph default; 0: physical limits only)
   DetectorPrior detector;
@@ -128,6 +135,9 @@ void parseInitialStateFlags(const YAML::Node &node, InitialStateDef &is);
 void registerInitialStateParams(const YAML::Node &node, ParamSet &ps);
 void bindInitialStateParams(InitialStateDef &is, const ParamSet &ps);
 void emitInitialStateFlags(YAML::Emitter &out, const InitialStateDef &is);
+// `parton_shower: {alpha_s, kt_min, theta_max}` (or false / none): registers the parameters.
+bool registerShowerParams(const YAML::Node &node, ParamSet &ps);
+void bindShowerParams(ShowerDef &s, const ParamSet &ps); // disabled when the parameters are absent
 std::string sqrtSModelName(SqrtSModel m);
 std::string threeBodyModelName(ThreeBodyModel m);
 ThreeBodyModel threeBodyModelFromString(const std::string &s);

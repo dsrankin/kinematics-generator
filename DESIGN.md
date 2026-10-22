@@ -63,6 +63,9 @@ Seeds are derived, never shared:
 | truth event *i* | `mix(task_seed, "evn", i)` |
 | detector response | `mix(env_seed, event_seed, "det")` |
 | features | `mix(detector_seed, "fea")` |
+| parton shower | `mix(event_seed, "shr")` |
+| extra jet collections (`in_met: false`) | `mix(detector_seed, "ovl")` |
+| jet-mass smearing | `mix(detector_seed, "mas")` |
 
 Consequences:
 
@@ -70,6 +73,10 @@ Consequences:
   parallel (`generate_batch(..., threads=N)` in Python) and regenerated on demand.
 * The truth record does not depend on the detector or feature configuration, and observing the same
   truth event in different environments uses independent detector randomness.
+* Optional stages use their own streams, so switching on the parton shower leaves the hard event
+  unchanged, and adding an extra jet collection or a jet-mass response leaves all other objects and
+  the MET unchanged (tested). Priors that use none of them give bit-identical output to earlier
+  versions.
 * Rejected task draws (see below) consume the task stream deterministically, so `(S, k)` still
   identifies one task. `TaskConfig::attempts` records how many draws were needed.
 * A serialised task (`taskToYAML`) contains the frozen parameter set, the resolved particle table,
@@ -209,6 +216,43 @@ are reconstructed so that `Σ incoming = Σ final + recoil` exactly. With `n_jet
 identical to the single-recoil model. The ISR jet kinematics are uncorrelated with each other and
 with the hard process; this is a recoil model, not a parton shower.
 
+## Parton shower and jet masses
+
+Without a shower every quark and gluon is one massless (or b-mass) truth particle, so jets have
+no mass beyond what merging decay partons gives. The optional `parton_shower` block adds a
+final-state shower to every visible final-state quark (|pdg| 1–5) and gluon, including emitted ISR
+jets:
+
+```yaml
+parton_shower:            # or `parton_shower: {}` for the defaults; absent or false = no shower
+  alpha_s: 0.13           # effective alpha_s(mZ), one-loop running
+  kt_min: 1.0             # GeV: emissions with z E theta below this are not resolved
+  hadron_mass: 0.5        # GeV: mass of every final shower parton
+  hadron_shift: 2.5       # GeV: jet m^2 += hadron_shift * (C_i / C_F) * pT * R
+  theta_max: 1.0          # largest emission angle of partons without a colour partner
+```
+
+The shower is leading-logarithmic and angular ordered: each parton emits with density
+α_s(z E θ)/π · dθ/θ · P(z) dz (P = C_F (1+(1−z)²)/z for q → qg, 2 C_A [z/(1−z) + (1−z)/z + z(1−z)] for
+g → gg, softer-daughter fraction z ≤ ½), generated with the veto algorithm; daughters continue at
+smaller angles. Each splitting conserves energy and balances transverse momentum around the parent
+direction, so a pair has mass² ≈ z(1−z)E²θ². Massive quarks do not radiate inside their dead cone
+θ < m/E. Colour coherence: the two partons of a colour-singlet decay (W, Z, H, any neutral
+colourless parent → q q̄) radiate only inside their opening angle. The shower partons are stored in
+`TruthEvent::shower` (parent index, pdg, four-vector); the hard truth particles are unchanged.
+Parameters are ordinary parameters (`parton_shower.<name>`) and can be randomised per task or
+event. Defaults were calibrated to COLLIDE-1M (Pythia 8) generator-level QCD jets: the 10–90 %
+quantiles of m/pT for anti-kT R = 0.4 jets between 30 GeV and 1 TeV and R = 0.8 jets above
+300 GeV agree within 7 % on average; the R = 0.8 low-mass tail is ~25 % low because there is no
+underlying event.
+
+Jets are built by the detector from these partons (see `detector.jets` below), so QCD jets get a
+Sudakov-shaped mass of order m/pT ≈ 0.1 and boosted W/Z/H/top decays merged into one large-radius jet
+reconstruct their parent mass (ungroomed: shifted up by in-jet radiation and hadronisation, e.g. a
+W peak near 90 GeV at pT ≈ 800 GeV and R = 0.8). Without clustering, all shower partons of one
+parton are summed back into one object. Not modelled: grooming (soft drop), the underlying event,
+g → q q̄ splittings, spin correlations in the shower and recoil against initial-state partons.
+
 ## Truth event
 
 `TruthEvent::particles` is a flat list. Indices 0 and 1 are the incoming partons, followed by the recoil
@@ -218,7 +262,7 @@ status (`Incoming`, `Recoil`, `Decayed`, `Final`), species index into the task's
 `branch` (which produced particle it descends from), `depth`, chosen `decay_mode` and object type.
 Helpers: `finalState()`, `producedParticles()`, `ancestors(i)`, `isDescendant(i, a)`, `trueMET()`,
 `topology()` (e.g. `t>(W+>(mu+,vm),b) + tbar>(W->(q,q),bbar)`). Event-scoped parameter draws are
-kept in `event_params`.
+kept in `event_params`; parton-shower products, when enabled, in `shower`.
 
 Generation of one event: draw event parameters → component → decay modes top-down → mass
 thresholds bottom-up → masses top-down → √ŝ, rapidity, recoil → production (1, 2 or 3 bodies) →
@@ -302,6 +346,29 @@ matched on the true object type, as for all other response parameters. Each even
 randomised per environment or per event like any other. Because the MET is built from the smeared
 objects, correlated shifts propagate into it consistently.
 
+`jets` lists jet collections built by anti-kT clustering of the reconstruction candidates (shower
+partons when there is a shower) of the `inputs` types, before the detector response:
+
+```yaml
+detector:
+  jets:
+    - {type: jet, radius: 0.4}                     # inputs default to [jet]; replaces them, enters MET
+    - {type: fatjet, radius: 0.8, in_met: false}   # extra collection from the same partons
+  objects:
+    fatjet: {pt_min: 200, mass_scale: 1.0, mass_resolution: 0.08, ...}
+```
+
+A collection with `in_met: true` (default) replaces its input candidates by its jets, which then
+receive the response of `type` and enter the MET; an input type may be consumed by at most one such
+collection. A collection with `in_met: false` is an independent view (e.g. large-radius jets next to
+small-radius ones): its jets are reconstructed with their own random stream and added to the event
+without changing other objects or the MET. Clustered objects carry `n_constituents` (shower partons),
+`n_partons` (distinct hard truth partons, e.g. 2 for a merged W → q q̄, 3 for a merged top) and
+`truth_index` of the parton with the largest energy share. Jets that contain shower partons get the
+shower's non-perturbative mass shift. `mass_scale` and `mass_resolution` (optional, per object type)
+smear the reconstructed mass on top of the pT response: m = m_true · f · mass_scale · (1 +
+mass_resolution · N(0,1)), where f is the pT response factor.
+
 `fakes: {rate, types, pt_min, pt_scale, eta_max}` adds Poisson(rate) fake objects with
 pT = pt_min + Exp(pt_scale), uniform η and φ. `met: {soft_sigma, sumet_coeff, recoil_scale,
 recoil_resolution, lost_to_met}` reconstructs
@@ -313,7 +380,8 @@ which equals the true invisible pT for a perfect detector (tested). Objects are 
 one) are errors, not clipped; use `truncated_gaussian` priors.
 
 `ObservedEvent` holds `objects` (four-vector, type, `type_code` into `TaskConfig::object_types`,
-charge, `features`, `truth_index` or −1 for fakes, `true_type`, `is_fake`), `met_x/met_y`, `sum_et`,
+charge, `features`, `truth_index` or −1 for fakes, `true_type`, `is_fake`, `n_constituents`,
+`n_charged`, `n_partons`), `met_x/met_y`, `sum_et`,
 counts of lost/fake/misidentified objects, ids, seeds, the component label, the feature schema and
 any event-scoped detector draws.
 
@@ -364,7 +432,8 @@ full task YAML) and `environments` (id, seed, parameters, YAML). The legacy form
 original `test` and `info` trees.
 
 Python (`kinegen.generate_batch`) returns padded NumPy arrays: `p4`, `ptetaphim` (n, M, 4),
-`type` (−1 padding), `mask`, `features` (NaN = missing or padding), `truth_index`, `is_fake`, `met`,
+`type` (−1 padding), `mask`, `features` (NaN = missing or padding), `truth_index`, `is_fake`,
+`n_constituents`, `n_charged`, `n_partons`, `met`,
 `label`, `n_objects`, `event_index`, plus `feature_names` and `object_types`. Generation releases
 the GIL and can use several threads.
 
@@ -387,10 +456,11 @@ with `test.cc` is not possible because ROOT's `TRandom3` is no longer used.
 
 ## Limitations
 
-* No matrix elements, spin correlations beyond per-decay angular polynomials, parton showers,
-  hadronisation or interference; widths enter only through Breit-Wigner line shapes.
-* ISR jets are independent massless objects (no shower, no colour coherence); there is no
-  underlying event or pile-up beyond the MET soft term and fakes.
+* No matrix elements, spin correlations beyond per-decay angular polynomials or interference;
+  widths enter only through Breit-Wigner line shapes. The optional parton shower is final-state
+  only and leading-log, and hadronisation is a parametrised mass, not hadrons.
+* ISR jets are independent objects (showered only as final-state partons, no initial-state
+  coherence); there is no underlying event or pile-up beyond the MET soft term and fakes.
 * Detector response is per object apart from correlation groups and composites, without overlap
   removal or isolation.
 * Parton momentum fractions are not re-checked after adding ISR jets, so very hard ISR can give

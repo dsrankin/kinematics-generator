@@ -40,6 +40,13 @@ struct TruthParticle {
   bool visible() const { return isFinal() && object_type != "invisible"; }
 };
 
+// One parton of the final-state shower of a truth particle (see Jets.h).
+struct ShowerParticle {
+  int parent = -1; // index of the showered truth particle
+  int pdg = 21;
+  P4 p4;
+};
+
 struct TruthEvent {
   std::string task_id;
   uint64_t task_seed = 0;
@@ -51,6 +58,7 @@ struct TruthEvent {
   double sqrt_s_hat = 0;
   double x1 = 0, x2 = 0;
   std::vector<TruthParticle> particles;
+  std::vector<ShowerParticle> shower; // parton-shower products of final-state partons, grouped by parent (empty: no shower)
   std::vector<std::pair<std::string, double>> event_params; // event-scoped parameter draws
 
   std::vector<int> finalState() const;
@@ -76,6 +84,7 @@ struct ObservedObject {
   bool is_fake = false;
   int n_constituents = 1;        // visible truth particles merged into this object (composites > 1 possible)
   int n_charged = 0;             // of which charged (e.g. tau prongs)
+  int n_partons = 1;             // distinct truth particles in a clustered jet (2 for a merged W -> q q); 0 for fakes
 
   double pt() const { return p4.pt(); }
   double eta() const { return p4.eta(); }

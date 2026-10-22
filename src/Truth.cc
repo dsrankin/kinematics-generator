@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "kg/Generator.h"
+#include "kg/Jets.h"
 
 namespace kg {
 
@@ -475,6 +476,8 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
     if (n.mode >= 0) tp.reconstruct_as = sp.modes[n.mode].reconstruct_as;
     ev.particles.push_back(std::move(tp));
   }
+  // 7) Final-state parton shower (own random stream: the hard event above is unchanged by it).
+  applyPartonShower(t, v, ev);
   return ev;
 }
 

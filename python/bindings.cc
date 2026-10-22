@@ -68,7 +68,7 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   py::array_t<int32_t> type(shape{sn, sm}), truth(shape{sn, sm}), label(shape{sn}), nobj(shape{sn});
   py::array_t<bool> mask(shape{sn, sm}), fake(shape{sn, sm});
   py::array_t<float> charge(shape{sn, sm});
-  py::array_t<int32_t> ncon(shape{sn, sm}), nchg(shape{sn, sm});
+  py::array_t<int32_t> ncon(shape{sn, sm}), nchg(shape{sn, sm}), npar(shape{sn, sm});
   py::array_t<uint64_t> index(shape{sn});
   // Truth summaries (targets for supervised pretraining; never model inputs by default).
   py::array_t<float> tmet(shape{sn, 2}), sqrts(shape{sn}), mprod(shape{sn});
@@ -84,6 +84,7 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   auto Ch = charge.mutable_unchecked<2>();
   auto Nc = ncon.mutable_unchecked<2>();
   auto Nq = nchg.mutable_unchecked<2>();
+  auto Np = npar.mutable_unchecked<2>();
   auto L = label.mutable_unchecked<1>();
   auto N = nobj.mutable_unchecked<1>();
   auto I = index.mutable_unchecked<1>();
@@ -125,6 +126,7 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
         Ch(i, j) = 0;
         Nc(i, j) = 0;
         Nq(i, j) = 0;
+        Np(i, j) = 0;
         continue;
       }
       const ObservedObject &ob = o.objects[j];
@@ -143,6 +145,7 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
       Ch(i, j) = static_cast<float>(ob.charge);
       Nc(i, j) = ob.n_constituents;
       Nq(i, j) = ob.n_charged;
+      Np(i, j) = ob.n_partons;
     }
   }
   py::dict d;
@@ -156,6 +159,7 @@ py::dict toArrays(const TaskConfig &task, const std::vector<GeneratedEvent> &evs
   d["charge"] = charge;
   d["n_constituents"] = ncon; // visible truth particles merged into each object (composites, e.g. hadronic taus)
   d["n_charged"] = nchg;
+  d["n_partons"] = npar; // hard truth partons merged into a clustered jet (2 for a merged W -> q q; 0 for fakes)
   d["met"] = met;
   d["label"] = label;
   d["n_objects"] = nobj; // before any max_objects truncation
@@ -278,6 +282,11 @@ PYBIND11_MODULE(kinegen, m) {
       .def_property_readonly("p4", [](const TruthParticle &p) { return p4tuple(p.p4); })
       .def("__repr__", [](const TruthParticle &p) { return "<TruthParticle " + std::to_string(p.index) + " " + p.name + ">"; });
 
+  py::class_<ShowerParticle>(m, "ShowerParticle")
+      .def_readonly("parent", &ShowerParticle::parent)
+      .def_readonly("pdg", &ShowerParticle::pdg)
+      .def_property_readonly("p4", [](const ShowerParticle &s) { return p4tuple(s.p4); });
+
   py::class_<TruthEvent>(m, "TruthEvent")
       .def_readonly("task_id", &TruthEvent::task_id)
       .def_readonly("event_index", &TruthEvent::event_index)
@@ -287,6 +296,7 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("process", &TruthEvent::process)
       .def_readonly("sqrt_s_hat", &TruthEvent::sqrt_s_hat)
       .def_readonly("particles", &TruthEvent::particles)
+      .def_readonly("shower", &TruthEvent::shower)
       .def_readonly("event_params", &TruthEvent::event_params)
       .def("final_state", &TruthEvent::finalState)
       .def("ancestors", &TruthEvent::ancestors)
@@ -303,6 +313,7 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("is_fake", &ObservedObject::is_fake)
       .def_readonly("n_constituents", &ObservedObject::n_constituents)
       .def_readonly("n_charged", &ObservedObject::n_charged)
+      .def_readonly("n_partons", &ObservedObject::n_partons)
       .def_property_readonly("p4", [](const ObservedObject &o) { return p4tuple(o.p4); })
       .def_property_readonly("pt", &ObservedObject::pt)
       .def_property_readonly("eta", &ObservedObject::eta)

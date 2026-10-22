@@ -78,6 +78,7 @@ struct TaskConfig {
   std::map<std::string, int> particle_index;
   std::vector<TaskComponent> components;
   InitialStateDef initial;
+  ShowerDef shower;
   double bw_cutoff = 0;
 
   std::vector<FeatureSpec> features;
