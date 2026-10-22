@@ -1,0 +1,71 @@
+# Detector-domain randomisation: one fixed physics process (pp -> Z' -> l l /
+# j j), many detector environments. Environment-scoped parameters are drawn
+# once per environment (kg::sampleEnvironment); `scope: event` parameters
+# fluctuate event by event within an environment (e.g. pile-up-like MET noise).
+name: zprime_domain_randomization
+seed: 7
+
+particles:
+  Zp:
+    pdg: 32
+    mass: 1500
+    width: 45
+    decays:
+      - {daughters: [mu+, mu-], br: 0.3, angular: {type: polynomial, coeffs: [1, 0, 1], axis: beam}}
+      - {daughters: [q, q], br: 0.7}
+  mu+: {pdg: -13, charge: 1}
+  mu-: {pdg: 13, charge: -1}
+  q: {pdg: 2}
+
+production: [Zp]
+
+initial_state:
+  sqrt_s: {model: exponential_pdf, ebeam: 6500}
+  rapidity: from_pdf
+  recoil: {model: exponential, min_pt: 5, mean_pt: 20}
+
+detector:
+  objects:
+    jet:
+      efficiency: {plateau: {dist: uniform, min: 0.8, max: 1.0}, pt50: {dist: uniform, min: 15, max: 35}, width: 5}
+      pt_min: 30
+      eta_max: {dist: categorical, values: [2.5, 4.5]}      # tracker-only vs full calorimeter
+      resolution:
+        stochastic: {dist: uniform, min: 0.4, max: 1.5}
+        constant: {dist: loguniform, min: 0.01, max: 0.1}
+        noise: {dist: uniform, min: 0, max: 10}
+      scale: {dist: gaussian, mean: 1.0, sigma: 0.03}      # jet energy scale offset per environment
+      sigma_eta: {dist: uniform, min: 0, max: 0.05}
+      sigma_phi: {dist: uniform, min: 0, max: 0.05}
+      misid: {muon: {dist: loguniform, min: 0.0001, max: 0.01}}
+    muon:
+      efficiency: {dist: truncated_gaussian, mean: 0.93, sigma: 0.05, min: 0.5, max: 1.0}
+      pt_min: 20
+      eta_max: 2.7
+      resolution:
+        constant: {dist: uniform, min: 0.005, max: 0.03}
+        pt_term: {dist: loguniform, min: 0.00002, max: 0.0005}
+      misid: {jet: 0.005}
+  fakes:
+    rate: {dist: loguniform, min: 0.05, max: 2.0}
+    types: {jet: {dist: uniform, min: 0.5, max: 1.0}, muon: 0.02}
+    pt_min: 30
+    pt_scale: {dist: uniform, min: 5, max: 30}
+  correlations:
+    # Per-event jet energy scale shift whose size varies between environments.
+    jes: {types: [jet], scale_sigma: {dist: uniform, min: 0, max: 0.05}, resolution_correlation: {dist: uniform, min: 0, max: 0.8}, unclustered: true}
+  met:
+    soft_sigma: {dist: uniform, min: 5, max: 25, scope: event}   # varies event by event
+    sumet_coeff: {dist: uniform, min: 0.3, max: 0.8}
+    recoil_scale: {dist: gaussian, mean: 1.0, sigma: 0.05}
+    recoil_resolution: {dist: uniform, min: 0.05, max: 0.3}
+    lost_to_met: 1.0
+
+features:
+  - name: resolution_tag
+    kind: environment
+    param: detector.jet.resolution.stochastic
+    coeff: 1
+    sigma: 0.05
+  - name: noise
+    kind: gaussian
