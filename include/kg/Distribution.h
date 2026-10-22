@@ -53,7 +53,8 @@ class Distribution {
   std::string typeName() const;
 
   // Parse from a YAML map containing `dist: <type>` and the type's fields.
-  static Distribution fromYAML(const YAML::Node &node, const std::string &context = "");
+  // `parameter_keys`: also accept `scope` and `ratio_of` (handled by ParamSet::parse).
+  static Distribution fromYAML(const YAML::Node &node, const std::string &context = "", bool parameter_keys = false);
   // Emit the `dist` key and fields into an already-open YAML map.
   void emitFields(YAML::Emitter &out) const;
 };

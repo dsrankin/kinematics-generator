@@ -462,7 +462,8 @@ feature from a task's schema. Truth ancestry is never exposed as a feature unles
 ## Validation
 
 Static (at `parsePrior`): unknown keys at every level (including parameter, distribution,
-efficiency, resolution, fakes, MET and multiplicity maps), unknown particles/daughters, more than three daughters or
+efficiency, resolution, fakes, MET and multiplicity maps; object-type names used as keys in `misid`
+and `fakes.types` are free and so cannot be checked), unknown particles/daughters, more than three daughters or
 produced particles, cyclic decay graphs (the cycle is printed), stable/decays contradictions,
 uninferable object types, fixed BRs outside [0, 1] or not summing to one (unless
 `normalize_br: true`), event-scoped BRs/angles/feature parameters, impossible component counts,

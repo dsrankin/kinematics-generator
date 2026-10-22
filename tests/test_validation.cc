@@ -194,6 +194,9 @@ particles:
 processes:
   - {name: m, production: [X], multiplicity: {values: [1, 2], weigths: [1, 1]}}
 )"), std::invalid_argument, "unknown key 'weigths'");
+  bad("task: {components: {dist: categorical, values: [1], scope: event}}\n", "unknown key 'scope'");
+  bad("features: [{name: f, kind: label_correlated, label: component, shift: {dist: gaussian, mean: 0, sigma: 1, ratio_of: x}}]\n",
+      "unknown key 'ratio_of'");
   // Correct spellings still parse.
   kgtest::prior(base + "parameters: {x: {dist: uniform, min: 0, max: 1, scope: event}, y: {expr: \"2 * x\", scope: event}}\n");
 }

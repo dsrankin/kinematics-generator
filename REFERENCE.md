@@ -300,13 +300,16 @@ features:
     applies_to: [jet, ...]   # object types (default all); NaN elsewhere
     missing_prob: 0          # per-object probability of NaN
     presence_prob: 1         # probability that the feature is in a task's schema
-    # kind-specific:
-    mean: 0, sigma: 1                         # gaussian
-    min: 0, max: 1                            # uniform
-    quantity: pt, rel_sigma: 0, abs_sigma: 0, bias: 0   # truth_proxy / observed_proxy
-    fake_policy: missing                      # truth_proxy: missing (NaN for fakes) | observed
-    label: component, base_mean: 0, sigma: 1, shift: <distribution or number>   # label_correlated
-    param: detector.jet.resolution.stochastic, coeff: 1, offset: 0, sigma: 0     # environment
+    # kind-specific keys (defaults shown):
+    # gaussian:          mean: 0, sigma: 1
+    # uniform:           min: 0, max: 1
+    # truth_proxy, observed_proxy: quantity (required), rel_sigma: 0, abs_sigma: 0, bias: 0
+    # truth_proxy:       fake_policy: missing     (missing: NaN for fakes | observed)
+    # label_correlated:  label (required), shift (required: distribution or number), base_mean: 0, sigma: 1
+    # environment:       param (required: detector parameter name), coeff: 1, offset: 0, sigma: 0
+  - {name: pt_proxy, kind: truth_proxy, quantity: pt, rel_sigma: 0.1, fake_policy: observed}
+  - {name: btag, kind: label_correlated, label: truth_type, shift: {dist: gaussian, mean: 0, sigma: 2}, applies_to: [jet]}
+  - {name: res_tag, kind: environment, param: detector.jet.resolution.stochastic, coeff: 1, sigma: 0.1}
 ```
 
 * Proxies: value = x + bias + rel_sigma·|x|·N(0,1) + abs_sigma·N(0,1). Truth quantities: `pt eta
@@ -339,7 +342,10 @@ Process `weight` is a plain number, not a parameter.
 
 ## Validation and errors
 
-Unknown keys are errors at every level of the prior, including parameter and distribution maps.
+Unknown keys are errors at every level of the prior, including parameter and distribution maps
+(`scope` and `ratio_of` only where the distribution is a parameter, not in `task.components` or a
+feature `shift`). Object-type names used as keys (`misid`, `fakes.types`) cannot be checked: a
+misspelled type silently becomes a new object type, so check `TaskConfig::object_types`.
 Static checks at parse time, per-task checks (`InvalidTask`, redrawn with `validation: reject`) and
 per-event errors are listed in DESIGN.md. Nothing is clipped silently. C++ throws
 `std::invalid_argument` (bad configuration), `kg::InvalidTask` and `std::runtime_error`
@@ -364,7 +370,7 @@ kg.__version__
 | `generate_event(task, index, env=None)` | `(TruthEvent, ObservedEvent)` |
 | `generate_batch(task, n, start=0, env=None, max_objects=None, threads=1, include_truth=False)` | dict of arrays (below) |
 | `assign_split(task, by="task", fractions=None, salt=0, parameter="", edges=[], labels=[], env=None)` | split label |
-| `DetectorModel(task).apply(truth, env=task env)` | `ObservedEvent` |
+| `DetectorModel(task).apply(truth)`, `.apply(truth, env)` (positional) | `ObservedEvent` (default: the task's environment) |
 
 Classes (read-only attributes):
 

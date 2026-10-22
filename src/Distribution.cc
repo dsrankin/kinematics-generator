@@ -204,10 +204,10 @@ std::string Distribution::typeName() const {
   return "fixed";
 }
 
-Distribution Distribution::fromYAML(const YAML::Node &n, const std::string &c) {
+Distribution Distribution::fromYAML(const YAML::Node &n, const std::string &c, bool parameter_keys) {
   if (!n.IsMap() || !n["dist"]) throw std::invalid_argument(ctx(c) + ": expected a map with a 'dist' key");
   const std::string t = n["dist"].as<std::string>();
-  // Keys a distribution map may contain (plus `scope` and `ratio_of`, used by parameters).
+  // Keys a distribution map may contain (plus `scope` and `ratio_of` for parameters).
   static const std::map<std::string, std::set<std::string>> keys = {
       {"fixed", {"value"}}, {"uniform", {"min", "max"}}, {"loguniform", {"min", "max"}}, {"log_uniform", {"min", "max"}},
       {"gaussian", {"mean", "sigma"}}, {"normal", {"mean", "sigma"}}, {"truncated_gaussian", {"mean", "sigma", "min", "max"}},
@@ -217,7 +217,7 @@ Distribution Distribution::fromYAML(const YAML::Node &n, const std::string &c) {
   if (known != keys.end())
     for (const auto &kv : n) {
       const std::string k = kv.first.as<std::string>();
-      if (k != "dist" && k != "scope" && k != "ratio_of" && !known->second.count(k))
+      if (k != "dist" && !(parameter_keys && (k == "scope" || k == "ratio_of")) && !known->second.count(k))
         throw std::invalid_argument(ctx(c) + ": unknown key '" + k + "' for distribution '" + t + "'");
     }
   auto req = [&](const char *k) {

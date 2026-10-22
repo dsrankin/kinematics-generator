@@ -65,7 +65,7 @@ int ParamSet::parse(const YAML::Node &n, const std::string &name) {
     d.scope = parseScope(n["scope"], name);
     if (n["dist"]) {
       d.kind = ParamDef::Kind::Dist;
-      d.dist = Distribution::fromYAML(n, "parameter '" + name + "'"); // also rejects unknown keys
+      d.dist = Distribution::fromYAML(n, "parameter '" + name + "'", true); // also rejects unknown keys
       if (n["ratio_of"]) d.ratio_of = n["ratio_of"].as<std::string>();
     } else if (n["expr"] || n["value"]) {
       const char *k = n["expr"] ? "expr" : "value";
