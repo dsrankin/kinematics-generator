@@ -93,6 +93,12 @@ struct ShowerDef {
   int alpha_s = -1, kt_min = -1, theta_max = -1, hadron_mass = -1, hadron_shift = -1; // parameter indices
 };
 
+// Underlying event (see Jets.h). Parameters "underlying_event.<field>".
+struct UnderlyingEventDef {
+  bool enabled = false;
+  int density = -1, pt_mean = -1, eta_max = -1; // parameter indices
+};
+
 struct TaskSamplingDef {
   Distribution n_components = Distribution::fixed(1);
   std::string fractions = "equal"; // equal | dirichlet | fixed
@@ -112,6 +118,7 @@ struct PriorConfig {
   std::vector<ProcessDef> processes;
   InitialStateDef initial;
   ShowerDef shower;
+  UnderlyingEventDef underlying;
   TaskSamplingDef task;
   double bw_cutoff = 15; // truncate Breit-Wigner masses at +-bw_cutoff*width (MadGraph default; 0: physical limits only)
   DetectorPrior detector;
@@ -138,6 +145,9 @@ void emitInitialStateFlags(YAML::Emitter &out, const InitialStateDef &is);
 // `parton_shower: {alpha_s, kt_min, theta_max}` (or false / none): registers the parameters.
 bool registerShowerParams(const YAML::Node &node, ParamSet &ps);
 void bindShowerParams(ShowerDef &s, const ParamSet &ps); // disabled when the parameters are absent
+// `underlying_event: {density, pt_mean, eta_max}` (or false / none).
+bool registerUnderlyingEventParams(const YAML::Node &node, ParamSet &ps);
+void bindUnderlyingEventParams(UnderlyingEventDef &u, const ParamSet &ps);
 std::string sqrtSModelName(SqrtSModel m);
 std::string threeBodyModelName(ThreeBodyModel m);
 ThreeBodyModel threeBodyModelFromString(const std::string &s);

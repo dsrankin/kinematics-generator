@@ -136,6 +136,7 @@ std::string taskToYAML(const TaskConfig &t) {
   out << YAML::Key << "initial_state" << YAML::Value;
   emitInitialStateFlags(out, t.initial);
   if (t.shower.enabled) out << YAML::Key << "parton_shower" << YAML::Value << true;
+  if (t.underlying.enabled) out << YAML::Key << "underlying_event" << YAML::Value << true;
   out << YAML::Key << "object_types" << YAML::Value << YAML::Flow << t.object_types;
   out << YAML::Key << "features" << YAML::Value << YAML::BeginSeq;
   for (const auto &f : t.features) emitFeatureSpec(out, f);
@@ -215,6 +216,7 @@ TaskConfig taskFromYAML(const std::string &yaml) {
   t.initial.max_attempts = is["max_attempts"].as<int>();
   bindInitialStateParams(t.initial, t.params);
   if (n["parton_shower"] && n["parton_shower"].as<bool>()) bindShowerParams(t.shower, t.params);
+  if (n["underlying_event"] && n["underlying_event"].as<bool>()) bindUnderlyingEventParams(t.underlying, t.params);
   t.object_types = n["object_types"].as<std::vector<std::string>>();
   auto names = std::make_shared<std::vector<std::string>>();
   for (const auto &fn : n["features"]) {
@@ -283,12 +285,15 @@ std::string truthEventToYAML(const TruthEvent &ev) {
     out << YAML::EndMap;
   }
   out << YAML::EndSeq;
-  if (!ev.shower.empty()) {
-    out << YAML::Key << "shower" << YAML::Value << YAML::BeginSeq; // [parent, pdg, px, py, pz, e]
-    for (const auto &s : ev.shower)
+  auto list = [&](const char *key, const std::vector<ShowerParticle> &v) {
+    if (v.empty()) return;
+    out << YAML::Key << key << YAML::Value << YAML::BeginSeq; // [parent, pdg, px, py, pz, e]
+    for (const auto &s : v)
       out << YAML::Flow << std::vector<double>{double(s.parent), double(s.pdg), s.p4.px, s.p4.py, s.p4.pz, s.p4.e};
     out << YAML::EndSeq;
-  }
+  };
+  list("shower", ev.shower);
+  list("underlying_event", ev.underlying_event);
   out << YAML::EndMap;
   return std::string(out.c_str()) + "\n";
 }
@@ -326,12 +331,15 @@ TruthEvent truthEventFromYAML(const std::string &yaml) {
     if (pn["reconstruct_as"]) p.reconstruct_as = pn["reconstruct_as"].as<std::string>();
     ev.particles.push_back(std::move(p));
   }
-  if (n["shower"])
-    for (const auto &sn : n["shower"]) {
+  for (const char *key : {"shower", "underlying_event"}) {
+    if (!n[key]) continue;
+    auto &dst = std::string(key) == "shower" ? ev.shower : ev.underlying_event;
+    for (const auto &sn : n[key]) {
       const auto v = sn.as<std::vector<double>>();
-      if (v.size() != 6) throw std::invalid_argument("truth event: shower entries are [parent, pdg, px, py, pz, e]");
-      ev.shower.push_back({static_cast<int>(v[0]), static_cast<int>(v[1]), P4(v[2], v[3], v[4], v[5])});
+      if (v.size() != 6) throw std::invalid_argument(std::string("truth event: ") + key + " entries are [parent, pdg, px, py, pz, e]");
+      dst.push_back({static_cast<int>(v[0]), static_cast<int>(v[1]), P4(v[2], v[3], v[4], v[5])});
     }
+  }
   return ev;
 }
 

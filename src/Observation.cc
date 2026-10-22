@@ -237,7 +237,11 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
   }
 
   // Jet clustering: one candidate per anti-kT jet of each collection. Jets made of shower
-  // partons receive the shower's non-perturbative mass shift.
+  // partons receive the shower's non-perturbative mass shift. Underlying-event particles are soft,
+  // so anti-kT attaches each to the nearest hard jet within R without moving it; they are added
+  // that way after clustering the hard pieces (much faster than clustering hundreds of soft
+  // particles). Being balanced in pT, the underlying event outside reconstructed jets is
+  // unclustered energy.
   std::vector<Candidate> overlay;
   for (const auto &jc : ds.jets) {
     std::vector<P4> in;
@@ -247,9 +251,11 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
         in.push_back(pieces[k].p4);
         sel.push_back(static_cast<int>(k));
       }
+    std::vector<Candidate> jets;
+    std::vector<std::vector<std::pair<int, double>>> shares; // truth index -> energy in each jet
     for (const auto &members : antiKtCluster(in, jc.radius)) {
       Candidate c{-1, P4(), 0.0, jc.type, 0, 0, 0};
-      std::vector<std::pair<int, double>> share; // truth index -> energy in this jet
+      std::vector<std::pair<int, double>> share;
       for (int m : members) {
         const Piece &pc = pieces[sel[m]];
         c.p4 += pc.p4;
@@ -260,6 +266,45 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
         if (it == share.end()) share.emplace_back(pc.index, pc.p4.e);
         else it->second += pc.p4.e;
       }
+      jets.push_back(std::move(c));
+      shares.push_back(std::move(share));
+    }
+    if (!truth.underlying_event.empty() && std::find(jc.inputs.begin(), jc.inputs.end(), "jet") != jc.inputs.end()) {
+      std::vector<double> jy(jets.size()), jphi(jets.size());
+      for (size_t j = 0; j < jets.size(); ++j) {
+        jy[j] = jets[j].p4.rapidity();
+        jphi[j] = jets[j].p4.phi();
+      }
+      std::vector<P4> add(jets.size());
+      std::vector<int> nadd(jets.size(), 0);
+      const double R2 = jc.radius * jc.radius;
+      for (const auto &u : truth.underlying_event) {
+        const double uy = u.p4.rapidity(), uphi = u.p4.phi();
+        int best = -1;
+        double bd = R2;
+        for (size_t j = 0; j < jets.size(); ++j) {
+          const double dy = uy - jy[j], dp = deltaPhi(uphi, jphi[j]), d = dy * dy + dp * dp;
+          if (d < bd) {
+            bd = d;
+            best = static_cast<int>(j);
+          }
+        }
+        if (best >= 0) {
+          add[best] += u.p4;
+          ++nadd[best];
+        } else if (jc.in_met) {
+          recx += u.p4.px;
+          recy += u.p4.py;
+        }
+      }
+      for (size_t j = 0; j < jets.size(); ++j) {
+        jets[j].p4 += add[j];
+        jets[j].n_constituents += nadd[j];
+      }
+    }
+    for (size_t j = 0; j < jets.size(); ++j) {
+      Candidate &c = jets[j];
+      const auto &share = shares[j];
       c.n_partons = static_cast<int>(share.size());
       c.index = std::max_element(share.begin(), share.end(), [](const std::pair<int, double> &x, const std::pair<int, double> &y) {
                   return x.second < y.second;

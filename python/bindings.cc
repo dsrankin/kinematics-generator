@@ -297,6 +297,7 @@ PYBIND11_MODULE(kinegen, m) {
       .def_readonly("sqrt_s_hat", &TruthEvent::sqrt_s_hat)
       .def_readonly("particles", &TruthEvent::particles)
       .def_readonly("shower", &TruthEvent::shower)
+      .def_readonly("underlying_event", &TruthEvent::underlying_event)
       .def_readonly("event_params", &TruthEvent::event_params)
       .def("final_state", &TruthEvent::finalState)
       .def("ancestors", &TruthEvent::ancestors)

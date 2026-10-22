@@ -236,3 +236,41 @@ TEST(jet_configuration_round_trip_and_validation) {
   CHECK_THROWS_AS(kgtest::prior(base + "detector: {jets: [{radius: 0.4}]}\n"), std::invalid_argument, "needs a 'type'");
   CHECK_THROWS_AS(sampleTask(kgtest::prior(base + "parton_shower: {kt_min: 0}\n"), 1, 0), std::exception, "kt_min");
 }
+
+TEST(underlying_event_particles_and_jet_offset) {
+  const std::string ue = "underlying_event: {density: 2.0, pt_mean: 0.7, eta_max: 5.0}\n";
+  const TaskConfig a = sampleTask(boosted("[g, g]", kShower, kJets), 1, 0);
+  const TaskConfig b = sampleTask(boosted("[g, g]", std::string(kShower) + ue, kJets), 1, 0);
+  CHECK(!a.underlying.enabled && b.underlying.enabled);
+  const DetectorModel da(a), db(b);
+  Stats n, offset, dm;
+  for (int i = 0; i < 1000; ++i) {
+    const TruthEvent ea = generateTruthEvent(a, i), eb = generateTruthEvent(b, i);
+    CHECK(ea.underlying_event.empty());
+    CHECK(truthEventToYAML(ea).size() < truthEventToYAML(eb).size());
+    CHECK(ea.shower.size() == eb.shower.size()); // the shower is unchanged by the underlying event
+    double sx = 0, sy = 0;
+    for (const auto &u : eb.underlying_event) {
+      sx += u.p4.px;
+      sy += u.p4.py;
+      CHECK(std::fabs(u.p4.eta()) <= 5.0 + 1e-9);
+    }
+    CHECK(std::fabs(sx) < 1e-6 && std::fabs(sy) < 1e-6);
+    n.add(eb.underlying_event.size());
+    const ObservedEvent oa = da.apply(ea), ob = db.apply(eb);
+    const ObservedObject *ja = leading(oa, "jet"), *jb = leading(ob, "jet");
+    const ObservedObject *fa = leading(oa, "fatjet"), *fb = leading(ob, "fatjet");
+    if (ja && jb && ja->truth_index == jb->truth_index) offset.add(jb->pt() - ja->pt());
+    if (fa && fb && fa->truth_index == fb->truth_index) dm.add(fb->m() - fa->m());
+  }
+  // Poisson mean density * area / pt_mean = 2 * 20 pi / 0.7 ~ 180 particles.
+  CHECK_CLOSE(n.mean(), 2.0 * 20 * M_PI / 0.7, 3.0);
+  // An R = 0.4 jet picks up ~ density * pi R^2 ~ 1 GeV; large-R jets get heavier.
+  CHECK(offset.mean() > 0.5 && offset.mean() < 2.0);
+  CHECK(dm.mean() > 0);
+  const TaskConfig r = taskFromYAML(taskToYAML(b));
+  CHECK(r.underlying.enabled);
+  CHECK(truthEventToYAML(generateTruthEvent(r, 3)) == truthEventToYAML(generateTruthEvent(b, 3)));
+  const TruthEvent e3 = generateTruthEvent(b, 3);
+  CHECK(truthEventFromYAML(truthEventToYAML(e3)).underlying_event.size() == e3.underlying_event.size());
+}

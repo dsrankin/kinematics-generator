@@ -478,6 +478,7 @@ TruthEvent generateTruthEvent(const TaskConfig &t, uint64_t event_index) {
   }
   // 7) Final-state parton shower (own random stream: the hard event above is unchanged by it).
   applyPartonShower(t, v, ev);
+  applyUnderlyingEvent(t, v, ev);
   return ev;
 }
 

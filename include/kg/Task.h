@@ -79,6 +79,7 @@ struct TaskConfig {
   std::vector<TaskComponent> components;
   InitialStateDef initial;
   ShowerDef shower;
+  UnderlyingEventDef underlying;
   double bw_cutoff = 0;
 
   std::vector<FeatureSpec> features;

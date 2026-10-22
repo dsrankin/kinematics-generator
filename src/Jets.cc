@@ -169,6 +169,30 @@ void applyPartonShower(const TaskConfig &t, const std::vector<double> &v, TruthE
   }
 }
 
+void applyUnderlyingEvent(const TaskConfig &t, const std::vector<double> &v, TruthEvent &ev) {
+  if (!t.underlying.enabled) return;
+  const double rho = v[t.underlying.density], ptm = v[t.underlying.pt_mean], etaMax = v[t.underlying.eta_max];
+  Rng rng(mixSeed(ev.seed, kStreamUnderlying));
+  const int n = rng.poisson(rho * 4.0 * M_PI * etaMax / ptm);
+  if (n < 2) return;
+  std::vector<double> pt(n), eta(n), phi(n);
+  double sx = 0, sy = 0;
+  for (int i = 0; i < n; ++i) {
+    pt[i] = rng.exponential(ptm);
+    eta[i] = rng.uniform(-etaMax, etaMax);
+    phi[i] = rng.uniform(-M_PI, M_PI);
+    sx += pt[i] * std::cos(phi[i]);
+    sy += pt[i] * std::sin(phi[i]);
+  }
+  ev.underlying_event.reserve(n);
+  for (int i = 0; i < n; ++i) {
+    const double px = pt[i] * std::cos(phi[i]) - sx / n, py = pt[i] * std::sin(phi[i]) - sy / n;
+    const double p = std::hypot(px, py);
+    if (p <= 0) continue;
+    ev.underlying_event.push_back({-1, 21, P4::fromPtEtaPhiM(p, eta[i], std::atan2(py, px), 0.0)});
+  }
+}
+
 std::vector<std::vector<int>> antiKtCluster(const std::vector<P4> &in, double R) {
   const size_t n = in.size();
   std::vector<std::vector<int>> jets;

@@ -22,6 +22,7 @@ enum Stream : uint64_t {
   kStreamDetector = 0x646574ULL,    // "det"
   kStreamFeature = 0x666561ULL,     // "fea"
   kStreamShower = 0x736872ULL,      // "shr": parton shower (truth)
+  kStreamUnderlying = 0x756576ULL,  // "uev": underlying event (truth)
   kStreamOverlay = 0x6f766cULL,     // "ovl": extra jet collections that do not enter MET
   kStreamMass = 0x6d6173ULL,        // "mas": jet-mass smearing
 };

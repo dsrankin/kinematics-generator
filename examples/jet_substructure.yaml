@@ -1,4 +1,4 @@
-# Jet masses: QCD jets and boosted heavy particles.
+# Jet masses: QCD jets and boosted heavy particles, with a parton shower and an underlying event.
 #
 # The final-state parton shower (`parton_shower`) gives every quark and gluon a collinear spray of
 # partons, and the detector clusters them with anti-kT into small-radius jets (R = 0.4, which
@@ -59,15 +59,19 @@ initial_state:
   recoil: {model: exponential, min_pt: 10, mean_pt: 30}
 
 parton_shower:
-  # Defaults calibrated on 2026-10-22 to COLLIDE-1M (Pythia 8) QCD generator-level jets (|eta| < 2.4):
-  # the 10/25/50/75/90 % quantiles of m/pT of anti-kT R = 0.4 jets from 30 GeV to 1 TeV and of
-  # R = 0.8 jets above 300 GeV agree within 7 % on average (R = 0.8 low tail ~25 % low: no
-  # underlying event).
+  # Defaults (with the underlying event below) calibrated on 2026-10-22 to COLLIDE-1M (Pythia 8)
+  # generator-level QCD jets (|eta| < 2.4): the 10/25/50/75/90 % quantiles of m/pT of anti-kT
+  # R = 0.4 jets from 30 GeV to 1 TeV and of R = 0.8 jets above 300 GeV agree within 4 % on average.
   alpha_s: 0.13           # effective alpha_s(mZ) of the leading-log shower (one-loop running)
   kt_min: 1.0             # GeV: shower cutoff
   hadron_mass: 0.5        # GeV: mass of each final shower parton
-  hadron_shift: 2.5       # GeV: jet mass^2 += hadron_shift * (C_i / C_F) * pT * R (hadronisation)
+  hadron_shift: 2.0       # GeV: jet mass^2 += hadron_shift * (C_i / C_F) * pT * R (hadronisation)
   theta_max: 1.0          # largest emission angle (colour-singlet decay partons: their opening angle)
+
+underlying_event:         # soft particles clustered into jets (multiple parton interactions)
+  density: 4.0            # GeV of pT per unit eta-phi area
+  pt_mean: 1.5            # GeV per particle (only the density matters for jet pT and mass)
+  eta_max: 5.0
 
 task:
   components: 1

@@ -52,6 +52,11 @@ ShowerSettings showerSettings(const TaskConfig &t, const std::vector<double> &va
 // Jet mass after the non-perturbative shift for a jet of radius R led by a parton `pdg`.
 P4 hadronisedJet(const P4 &jet, int pdg, double R, const ShowerSettings &s);
 
+// Underlying event: Poisson(density * A / pt_mean) massless particles over |eta| < eta_max
+// (area A = 2 eta_max * 2 pi), pT ~ Exp(pt_mean), flat in eta and phi, shifted to zero total pT
+// (they recoil against each other). Fills ev.underlying_event from the event's own random stream.
+void applyUnderlyingEvent(const TaskConfig &t, const std::vector<double> &values, TruthEvent &ev);
+
 // Anti-kT clustering with radius R in (rapidity, phi). Returns the input indices of each jet.
 std::vector<std::vector<int>> antiKtCluster(const std::vector<P4> &particles, double R);
 

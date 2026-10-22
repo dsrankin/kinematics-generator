@@ -188,6 +188,11 @@ void validateTask(const TaskConfig &t) {
     if (t.shower.hadron_mass >= 0 && !(v[t.shower.hadron_mass] >= 0)) fail("parton_shower: hadron_mass must be >= 0");
     if (t.shower.hadron_shift >= 0 && !(v[t.shower.hadron_shift] >= 0)) fail("parton_shower: hadron_shift must be >= 0");
   }
+  if (t.underlying.enabled) {
+    if (!(v[t.underlying.density] >= 0)) fail("underlying_event: density must be >= 0");
+    if (!(v[t.underlying.pt_mean] > 0)) fail("underlying_event: pt_mean must be > 0");
+    if (!(v[t.underlying.eta_max] > 0)) fail("underlying_event: eta_max must be > 0");
+  }
   if (is.recoil == RecoilModel::Exponential && !(v[is.recoil_mean] > v[is.recoil_min] && v[is.recoil_min] >= 0))
     fail("initial_state.recoil: requires mean_pt > min_pt >= 0");
 }
@@ -211,6 +216,7 @@ TaskConfig sampleTask(const PriorConfig &prior, uint64_t master_seed, int64_t in
     t.attempts = attempt;
     t.initial = prior.initial;
     t.shower = prior.shower;
+    t.underlying = prior.underlying;
     t.bw_cutoff = prior.bw_cutoff;
     t.object_types = prior.objectTypes();
     try {

@@ -100,7 +100,7 @@ build/kg-generate --prior examples/randomized_tasks.yaml --tasks 3 --save-tasks 
 | `examples/randomized_tasks.yaml` | randomised tasks: log-uniform masses, daughter/parent mass ratios, widths as fractions of masses, per-task decay-mode choice, single/pair/1–3 multiplicity production, two-process mixtures, randomised features |
 | `examples/detector_randomization.yaml` | detector-domain randomisation: one physics process, environment-level and event-level detector parameters, randomised correlated jet energy scale |
 | `examples/collide_tuned_sm.yaml` | realistic SM defaults: W, Z, tt̄, dibosons, QCD, γ+jet, V+γ with hard extra partons, PDF luminosity, ISR and a detector tuned to COLLIDE-1M (Delphes, with pile-up); see the file header for what was and was not tuned |
-| `examples/jet_substructure.yaml` | jet masses: final-state parton shower, anti-kT R = 0.4 jets plus an R = 0.8 large-radius collection, boosted W/Z/H/top from a heavy resonance and QCD dijets, jet-mass response |
+| `examples/jet_substructure.yaml` | jet masses: final-state parton shower, underlying event, anti-kT R = 0.4 jets plus an R = 0.8 large-radius collection, boosted W/Z/H/top from a heavy resonance and QCD dijets, jet-mass response |
 | `examples/migrated_process.yaml` | `process.card` converted with `kg-convert-card` |
 | `examples/stream_example.cc`, `examples/train_feed.py` | in-memory streaming from C++ and Python |
 

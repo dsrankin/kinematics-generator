@@ -59,6 +59,7 @@ struct TruthEvent {
   double x1 = 0, x2 = 0;
   std::vector<TruthParticle> particles;
   std::vector<ShowerParticle> shower; // parton-shower products of final-state partons, grouped by parent (empty: no shower)
+  std::vector<ShowerParticle> underlying_event; // soft underlying-event particles (parent -1), summing to zero pT
   std::vector<std::pair<std::string, double>> event_params; // event-scoped parameter draws
 
   std::vector<int> finalState() const;
