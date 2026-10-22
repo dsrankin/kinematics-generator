@@ -53,7 +53,7 @@ TEST(task_and_event_randomness_are_distinct) {
 }
 
 TEST(task_serialization_round_trip) {
-  for (const char *f : {"fixed_process.yaml", "randomized_tasks.yaml", "detector_randomization.yaml"}) {
+  for (const char *f : {"fixed_process.yaml", "randomized_tasks.yaml", "detector_randomization.yaml", "collide_tuned_sm.yaml"}) {
     const PriorConfig p = kg::loadPrior(kgtest::examplePath(f));
     for (int it = 0; it < 10; ++it) {
       const TaskConfig t = sampleTask(p, 31, it);

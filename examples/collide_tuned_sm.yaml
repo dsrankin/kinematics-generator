@@ -1,0 +1,252 @@
+# Standard Model processes with generator and detector settings tuned to COLLIDE-1M
+# (https://huggingface.co/datasets/fastmachinelearning/collide-1m; MadGraph + Pythia + Delphes,
+# 13 TeV, with pile-up, PUPPI jets and MET).
+#
+# Tuned on 2026-10-21 against the COLLIDE W -> l nu, Z -> nu nu + jets, ttbar (all decays), QCD
+# (HT > 100) and WW/WZ semileptonic samples, on high-level observables of the offline objects
+# (electrons, tight muons, tight photons, PUPPI AK4 jets with pT > 15 GeV, PUPPI MET), using a
+# two-stage coordinate search (1D Wasserstein distances, then a classifier two-sample test).
+# Mean classifier AUC kinegen-vs-COLLIDE over those five processes: 0.79 (0.5 = indistinguishable;
+# 0.93 with the previous hand-set defaults). W -> l nu remains the most distinguishable (0.95).
+#
+# What was tuned: hard extra partons (per-event subprocess weights and the V + parton production
+# angle), the parton luminosity (pdf model, f(x) ~ x^-a (1-x)^b), soft recoil (ISR) jets, object
+# efficiencies, jet turn-on and noise, jet -> photon misidentification, soft central extra jets
+# ("fakes", mimicking pile-up / underlying event) and the MET resolution. The detector is given at
+# the tuned central values; for domain randomisation around them see the broad pretraining prior of
+# the collider-fm studies. Not tuned: non-prompt leptons (jet -> e / mu misidentification left at
+# small default values), b-tagging (b quarks are reconstructed as jets), photon processes (included
+# for completeness; they share the tuned luminosity and detector).
+#
+# Limits: production is capped at three particles, so ttbar gets at most one hard extra parton
+# (V + up to two); pile-up enters only through soft extra jets and the MET soft term.
+name: collide_tuned_sm
+seed: 1
+bw_cutoff: 15
+particles:
+  W:
+    pdg: 24
+    mass: 80.38
+    width: 2.09
+    decays:
+    - daughters: [e, ve]
+      br: 0.108
+    - daughters: [mu, vm]
+      br: 0.108
+    - daughters: [tau, vt]
+      br: 0.108
+    - daughters: [q, q]
+      br: 0.676
+  Z:
+    pdg: 23
+    mass: 91.19
+    width: 2.5
+    decays:
+    - daughters: [e, e]
+      br: 0.034
+    - daughters: [mu, mu]
+      br: 0.034
+    - daughters: [tau, tau]
+      br: 0.034
+    - daughters: [vm, vm]
+      br: 0.2
+    - daughters: [q, q]
+      br: 0.698
+  t:
+    pdg: 6
+    mass: 172.5
+    width: 1.42
+    decays:
+    - [W, b]
+  tau:
+    pdg: 15
+    mass: 1.777
+    normalize_br: true
+    decays:
+    - daughters: [e, ve, vt]
+      br: 0.178
+    - daughters: [mu, vm, vt]
+      br: 0.174
+    - daughters: [pi, vt]
+      br: 0.108
+      reconstruct_as: tau
+      angular:
+        type: polynomial
+        coeffs:
+        - 1
+        - {dist: uniform, min: -1, max: 1}
+    - daughters: [rho, vt]
+      br: 0.255
+      reconstruct_as: tau
+    - daughters: [a1, vt]
+      br: 0.09
+      reconstruct_as: tau
+    - daughters: [a1n, vt]
+      br: 0.093
+      reconstruct_as: tau
+  rho:
+    pdg: 213
+    mass: 0.775
+    width: 0.149
+    decays:
+    - [pi, pi0]
+  a1:
+    pdg: 20213
+    mass: 1.23
+    width: 0.42
+    decays:
+    - [pi, pi, pi]
+  a1n:
+    pdg: 20213
+    mass: 1.23
+    width: 0.42
+    decays:
+    - [pi, pi0, pi0]
+  pi0:
+    pdg: 111
+    mass: 0.135
+    decays:
+    - [gamma, gamma]
+  pi: {pdg: 211, charge: 1, mass: 0.1396, object: jet}
+  gamma: {pdg: 22}
+  e: {pdg: 11, charge: -1, mass: 0.000511}
+  mu: {pdg: 13, charge: -1, mass: 0.1057}
+  q: {pdg: 1}
+  b: {pdg: 5, mass: 4.7, object: jet}
+  ve: {pdg: 12}
+  vm: {pdg: 14}
+  vt: {pdg: 16}
+processes:
+- name: W
+  weight: 3
+  subprocesses:
+  - production: [W]
+    weight: 1.0
+  - production: [W, q]
+    weight: 1.5
+    angular:
+      type: polynomial
+      coeffs: [1, 0, 0, 0, 10]
+  - production: [W, q, q]
+    weight: 1.5
+- name: Z
+  weight: 1.5
+  subprocesses:
+  - production: [Z]
+    weight: 1.0
+  - production: [Z, q]
+    weight: 1.5
+    angular:
+      type: polynomial
+      coeffs: [1, 0, 0, 0, 10]
+  - production: [Z, q, q]
+    weight: 1.5
+- name: ttbar
+  weight: 1.5
+  subprocesses:
+  - production: [t, t]
+    weight: 1.0
+  - production: [t, t, q]
+    weight: 10.0
+- name: diboson
+  weight: 1
+  subprocesses:
+  - production:
+    - W
+    - choice: [W, Z]
+      weights: [2, 1]
+    weight: 1.0
+  - production:
+    - W
+    - choice: [W, Z]
+      weights: [2, 1]
+    - q
+    weight: 10.0
+- name: dijet
+  weight: 1.5
+  subprocesses:
+  - production: [q, q]
+    weight: 1.0
+  - production: [q, q, q]
+    weight: 0.6
+- name: photon_jet
+  weight: 1
+  production: [q, gamma]
+- name: boson_photon
+  weight: 0.5
+  production:
+  - choice: [W, Z]
+  - gamma
+task: {components: 1, validation: error}
+initial_state:
+  sqrt_s: {model: pdf, ebeam: 6500, a: 1.7, b: 2.0, threshold_offset: 30}
+  rapidity: from_pdf
+  recoil:
+    model: exponential
+    min_pt: 10
+    mean_pt: 40
+    n_jets: {dist: poisson, mean: 2.0, scope: event}
+    rapidity: {dist: uniform, min: -2.5, max: 2.5, scope: event}
+    emit: true
+    object: jet
+detector:
+  objects:
+    electron:
+      efficiency: {plateau: 0.9, pt50: 5, width: 2}
+      pt_min: 3
+      eta_max: 3.0
+      resolution: {stochastic: 0.1, constant: 0.0125}
+      sigma_eta: 0.002
+      sigma_phi: 0.002
+      misid: {jet: 0.005477, photon: 0.01225}
+    muon:
+      efficiency: {plateau: 0.99, pt50: 4, width: 1}
+      pt_min: 3
+      eta_max: 2.1
+      resolution: {constant: 0.0125, pt_term: 0.0001225}
+      sigma_eta: 0.001
+      sigma_phi: 0.001
+    jet:
+      efficiency: {plateau: 0.985, pt50: 12.0, width: 4}
+      pt_min: 15
+      eta_max: 4.0
+      resolution: {stochastic: 0.85, constant: 0.055, noise: 8.0}
+      scale: 1.0
+      sigma_eta: 0.015
+      sigma_phi: 0.015
+      misid: {electron: 0.0007071, tau: 0.003162, photon: 0.02}
+    tau:
+      efficiency: {plateau: 0.625, pt50: 20, width: 5}
+      pt_min: 20
+      eta_max: 2.3
+      resolution: {stochastic: 0.6, constant: 0.055}
+      sigma_eta: 0.01
+      sigma_phi: 0.01
+      misid: {jet: 0.3}
+    photon:
+      efficiency: {plateau: 0.875, pt50: 10, width: 3}
+      pt_min: 10
+      eta_max: 2.5
+      resolution: {stochastic: 0.1, constant: 0.01}
+      sigma_eta: 0.002
+      sigma_phi: 0.002
+      misid: {electron: 0.01225}
+  fakes:
+    rate: 0.3
+    types: {jet: 0.94, electron: 0.02, muon: 0.02, tau: 0.02, photon: 0.0}
+    pt_min: 15
+    pt_scale: 3.0
+    eta_max: 2.5
+  correlations:
+    jes:
+      types: [jet]
+      scale_sigma: 0.02
+      resolution_correlation: 0.3
+      unclustered: true
+    tes:
+      types: [tau]
+      scale_sigma: 0.015
+    egamma:
+      types: [electron, photon]
+      scale_sigma: 0.005
+  met: {soft_sigma: 8.0, sumet_coeff: 0.8, recoil_scale: 1.0, recoil_resolution: 0.175}

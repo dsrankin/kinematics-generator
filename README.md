@@ -99,6 +99,7 @@ build/kg-generate --prior examples/randomized_tasks.yaml --tasks 3 --save-tasks 
 | `examples/fixed_process.yaml` | fixed-process generation: t t̄ with widths, W branching fractions, helicity angular distributions, Poisson multi-jet ISR, a realistic detector with a correlated jet energy scale |
 | `examples/randomized_tasks.yaml` | randomised tasks: log-uniform masses, daughter/parent mass ratios, widths as fractions of masses, per-task decay-mode choice, single/pair/1–3 multiplicity production, two-process mixtures, randomised features |
 | `examples/detector_randomization.yaml` | detector-domain randomisation: one physics process, environment-level and event-level detector parameters, randomised correlated jet energy scale |
+| `examples/collide_tuned_sm.yaml` | realistic SM defaults: W, Z, tt̄, dibosons, QCD, γ+jet, V+γ with hard extra partons, PDF luminosity, ISR and a detector tuned to COLLIDE-1M (Delphes, with pile-up); see the file header for what was and was not tuned |
 | `examples/migrated_process.yaml` | `process.card` converted with `kg-convert-card` |
 | `examples/stream_example.cc`, `examples/train_feed.py` | in-memory streaming from C++ and Python |
 
