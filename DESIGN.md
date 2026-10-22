@@ -381,7 +381,11 @@ underlying event does not count) and
 `truth_index` of the parton with the largest energy share. Jets that contain shower partons get the
 shower's non-perturbative mass shift. `mass_scale` and `mass_resolution` (optional, per object type)
 smear the reconstructed mass on top of the pT response: m = m_true · f · mass_scale · (1 +
-mass_resolution · N(0,1)), where f is the pT response factor.
+mass_resolution · N(0,1)), where f is the pT response factor. A measured total mass response can be
+given instead, binned in true pT:
+`mass_response: {pt_edges: [...], scale: [...], resolution: [...]}` (median reco/true mass and its
+relative resolution per bin); then m = m_true · mass_scale · scale[b] · max(0, 1 + mass_resolution ·
+resolution[b] · N(0,1)), with mass_resolution defaulting to 1 (a factor on the map's resolution).
 
 `fakes: {rate, types, pt_min, pt_scale, eta_max}` adds Poisson(rate) fake objects with
 pT = pt_min + Exp(pt_scale), uniform η and φ. `met: {soft_sigma, sumet_coeff, recoil_scale,

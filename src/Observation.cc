@@ -348,7 +348,13 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     const double f = r.scale * mean * (1.0 + shift) * (1.0 + sigma * g);
     if (f <= 0) return false;
     double m = std::max(0.0, c.p4.m()) * f;
-    if (r.smear_mass) m = std::max(0.0, m * r.mass_scale * (1.0 + r.mass_resolution * mrng.gauss()));
+    if (r.mass_map) { // measured total mass response in true pT (replaces the pT response factor)
+      const size_t b = r.mass_map->ptBin(pt);
+      m = std::max(0.0, c.p4.m()) * r.mass_scale * r.mass_map->scale[b] *
+          std::max(0.0, 1.0 + r.mass_resolution * r.mass_map->resolution[b] * mrng.gauss());
+    } else if (r.smear_mass) {
+      m = std::max(0.0, m * r.mass_scale * (1.0 + r.mass_resolution * mrng.gauss()));
+    }
     const P4 meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(c.p4.phi() + r.sigma_phi * gPhi), m);
     if (meas.pt() < ds.response(type).pt_min) return false;
     o.p4 = meas;

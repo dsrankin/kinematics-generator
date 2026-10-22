@@ -32,6 +32,12 @@ struct ResponseMap {
   size_t ptBin(double pt) const;
 };
 
+// Binned jet-mass response in true pT: median reco/true mass and relative mass resolution.
+struct MassResponseMap {
+  std::vector<double> pt_edges, scale, resolution;
+  size_t ptBin(double pt) const;
+};
+
 // Parameter indices describing one object type's response.
 struct ResponseDef {
   int efficiency = -1, eff_pt50 = -1, eff_width = -1;
@@ -42,6 +48,7 @@ struct ResponseDef {
   int mass_scale = -1, mass_resolution = -1; // optional extra mass response (-1: mass scales with pT only)
   std::vector<std::pair<std::string, int>> misid; // reconstructed-as type -> probability
   std::shared_ptr<const ResponseMap> map;         // optional binned response
+  std::shared_ptr<const MassResponseMap> mass_map; // optional binned mass response
 };
 
 // One jet collection: anti-kT clustering of the reconstruction candidates of the `inputs` types
@@ -101,6 +108,7 @@ struct Response {
   double mass_scale = 1, mass_resolution = 0;
   std::vector<std::pair<std::string, double>> misid;
   std::shared_ptr<const ResponseMap> map;
+  std::shared_ptr<const MassResponseMap> mass_map;
 
   double efficiencyAt(double pt) const;
   double relativeResolution(double e, double pt) const;

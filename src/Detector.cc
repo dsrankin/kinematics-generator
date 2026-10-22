@@ -48,6 +48,26 @@ std::shared_ptr<const ResponseMap> parseResponseMap(const YAML::Node &n, const s
   return m;
 }
 
+std::shared_ptr<const MassResponseMap> parseMassResponse(const YAML::Node &n, const std::string &ctx) {
+  for (const auto &kv : n)
+    if (!std::set<std::string>{"pt_edges", "scale", "resolution"}.count(kv.first.as<std::string>()))
+      throw std::invalid_argument(ctx + ": unknown key '" + kv.first.as<std::string>() + "'");
+  if (!n["pt_edges"] || !n["scale"] || !n["resolution"]) throw std::invalid_argument(ctx + ": needs pt_edges, scale and resolution");
+  auto m = std::make_shared<MassResponseMap>();
+  m->pt_edges = n["pt_edges"].as<std::vector<double>>();
+  m->scale = n["scale"].as<std::vector<double>>();
+  m->resolution = n["resolution"].as<std::vector<double>>();
+  if (m->pt_edges.size() < 2) throw std::invalid_argument(ctx + ": pt_edges needs at least two edges");
+  for (size_t i = 1; i < m->pt_edges.size(); ++i)
+    if (!(m->pt_edges[i] > m->pt_edges[i - 1])) throw std::invalid_argument(ctx + ": pt_edges must increase");
+  const size_t nb = m->pt_edges.size() - 1;
+  if (m->scale.size() != nb || m->resolution.size() != nb)
+    throw std::invalid_argument(ctx + ": scale and resolution need " + std::to_string(nb) + " entries");
+  for (size_t i = 0; i < nb; ++i)
+    if (!(m->scale[i] > 0) || !(m->resolution[i] >= 0)) throw std::invalid_argument(ctx + ": scale must be > 0, resolution >= 0");
+  return m;
+}
+
 ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet &ps) {
   const std::string p = "detector." + type + ".";
   ResponseDef r;
@@ -72,9 +92,11 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
   r.sigma_eta = ps.parseOr(n["sigma_eta"], p + "sigma_eta", 0.0);
   r.sigma_phi = ps.parseOr(n["sigma_phi"], p + "sigma_phi", 0.0);
   r.resolution_scale = ps.parseOr(n["resolution_scale"], p + "resolution_scale", 1.0);
-  if (n["mass_scale"] || n["mass_resolution"]) {
+  if (n["mass_response"]) r.mass_map = parseMassResponse(n["mass_response"], "detector." + type + ".mass_response");
+  if (n["mass_scale"] || n["mass_resolution"] || r.mass_map) {
     r.mass_scale = ps.parseOr(n["mass_scale"], p + "mass_scale", 1.0);
-    r.mass_resolution = ps.parseOr(n["mass_resolution"], p + "mass_resolution", 0.0);
+    // With a mass_response map, mass_resolution multiplies the map's resolution.
+    r.mass_resolution = ps.parseOr(n["mass_resolution"], p + "mass_resolution", r.mass_map ? 1.0 : 0.0);
   }
   if (n["response_map"]) r.map = parseResponseMap(n["response_map"], "detector." + type + ".response_map");
   if (n["misid"]) {
@@ -87,7 +109,7 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
   }
   static const std::set<std::string> known = {"efficiency", "eff_pt50", "eff_width", "pt_min", "eta_max", "resolution",
                                               "scale", "sigma_eta", "sigma_phi", "misid", "resolution_scale", "response_map",
-                                              "mass_scale", "mass_resolution"};
+                                              "mass_scale", "mass_resolution", "mass_response"};
   for (const auto &kv : n)
     if (!known.count(kv.first.as<std::string>()))
       throw std::invalid_argument("detector." + type + ": unknown key '" + kv.first.as<std::string>() + "'");
@@ -225,6 +247,13 @@ void emitDetectorPrior(YAML::Emitter &out, const DetectorPrior &d) {
     emitP(out, ps, "resolution_scale", r.resolution_scale);
     if (r.mass_scale >= 0) emitP(out, ps, "mass_scale", r.mass_scale);
     if (r.mass_resolution >= 0) emitP(out, ps, "mass_resolution", r.mass_resolution);
+    if (r.mass_map) {
+      out << YAML::Key << "mass_response" << YAML::Value << YAML::BeginMap;
+      out << YAML::Key << "pt_edges" << YAML::Value << YAML::Flow << r.mass_map->pt_edges;
+      out << YAML::Key << "scale" << YAML::Value << YAML::Flow << r.mass_map->scale;
+      out << YAML::Key << "resolution" << YAML::Value << YAML::Flow << r.mass_map->resolution;
+      out << YAML::EndMap;
+    }
     if (r.map) {
       out << YAML::Key << "response_map" << YAML::Value << YAML::BeginMap;
       out << YAML::Key << "eta_edges" << YAML::Value << YAML::Flow << r.map->eta_edges;
@@ -298,6 +327,11 @@ double Response::efficiencyAt(double pt) const {
   return efficiency * 0.5 * (1.0 + std::erf((pt - eff_pt50) / (std::sqrt(2.0) * eff_width)));
 }
 
+size_t MassResponseMap::ptBin(double pt) const {
+  const size_t i = std::upper_bound(pt_edges.begin(), pt_edges.end(), pt) - pt_edges.begin();
+  return std::min(std::max<size_t>(i, 1), pt_edges.size() - 1) - 1;
+}
+
 size_t ResponseMap::etaBin(double a) const {
   const size_t i = std::upper_bound(eta_edges.begin(), eta_edges.end(), a) - eta_edges.begin();
   return std::min(std::max<size_t>(i, 1), eta_edges.size() - 1) - 1;
@@ -346,6 +380,7 @@ DetectorState buildDetectorState(const DetectorPrior &d, const std::vector<doubl
     o.sigma_phi = v[r.sigma_phi];
     o.resolution_scale = v[r.resolution_scale];
     o.map = r.map;
+    o.mass_map = r.mass_map;
     if (r.mass_scale >= 0 || r.mass_resolution >= 0) {
       o.smear_mass = true;
       if (r.mass_scale >= 0) o.mass_scale = v[r.mass_scale];

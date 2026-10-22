@@ -274,3 +274,34 @@ TEST(underlying_event_particles_and_jet_offset) {
   const TruthEvent e3 = generateTruthEvent(b, 3);
   CHECK(truthEventFromYAML(truthEventToYAML(e3)).underlying_event.size() == e3.underlying_event.size());
 }
+
+TEST(binned_mass_response) {
+  const PriorConfig p = kgtest::prior(R"(
+particles:
+  X: {pdg: 9000023, mass: 2500, width: 1, decays: [{daughters: [W, W], br: 1}]}
+  W: {pdg: 24, mass: 80.4, width: 2.09, decays: [{daughters: [q, q], br: 1}]}
+  q: {pdg: 1, object: fatjet}
+production: [X]
+initial_state: {sqrt_s: {model: fixed, value: 2500}}
+detector:
+  objects:
+    fatjet:
+      resolution: {constant: 0.05}
+      mass_response: {pt_edges: [0, 500, 1.0e5], scale: [0.5, 0.8], resolution: [0.3, 0.1]}
+  jets: [{type: fatjet, radius: 0.8, inputs: [fatjet]}]
+)");
+  const TaskConfig t = sampleTask(p, 1, 0);
+  const DetectorModel d(t);
+  Stats r;
+  for (int i = 0; i < 3000; ++i) {
+    const TruthEvent ev = generateTruthEvent(t, i);
+    for (const auto &o : d.apply(ev).objects) {
+      const P4 &w = ev.particles[ev.particles[o.truth_index].parent].p4;
+      if (o.n_partons == 2 && w.pt() > 600) r.add(o.m() / w.m());
+    }
+  }
+  // W pT ~ 1.2 TeV: second bin; the pT smearing does not enter the mass.
+  CHECK_CLOSE(r.mean(), 0.8, 4 * r.err());
+  CHECK_CLOSE(r.sd(), 0.08, 0.005);
+  CHECK(taskToYAML(taskFromYAML(taskToYAML(t))) == taskToYAML(t));
+}
