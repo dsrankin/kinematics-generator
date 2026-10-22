@@ -198,7 +198,9 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
     const double uEff = rng.uniform(), uMis = rng.uniform();
     const double gE = rng.gauss(), gEta = rng.gauss(), gPhi = rng.gauss();
     const double pt = c.p4.pt(), eta = c.p4.eta();
-    bool keep = std::fabs(eta) <= r.eta_max && uEff < r.efficiencyAt(pt);
+    double eff, mean, sigma;
+    r.lookup(c.p4.e, pt, eta, eff, mean, sigma);
+    bool keep = std::fabs(eta) <= r.eta_max && uEff < eff;
     std::string type = c.type;
     if (keep && !r.misid.empty()) {
       double acc = 0;
@@ -219,7 +221,7 @@ ObservedEvent DetectorModel::apply(const TruthEvent &truth, const Environment &e
         shift = groupShift[grp->second];
         g = std::sqrt(rho) * groupCommon[grp->second] + std::sqrt(1 - rho) * gE;
       }
-      const double f = r.scale * (1.0 + shift) * (1.0 + r.relativeResolution(c.p4.e, pt) * g);
+      const double f = r.scale * mean * (1.0 + shift) * (1.0 + sigma * g);
       if (f <= 0) keep = false;
       else {
         meas = P4::fromPtEtaPhiM(pt * f, eta + r.sigma_eta * gEta, wrapPhi(c.p4.phi() + r.sigma_phi * gPhi), std::max(0.0, c.p4.m()) * f);

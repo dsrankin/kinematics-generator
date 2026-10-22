@@ -21,13 +21,26 @@
 
 namespace kg {
 
+// Binned response in (|eta|, pT) of the true object, e.g. measured from a full simulation:
+// mean response (reco/true pT), relative resolution and, optionally, efficiency per bin.
+// Values outside the edges use the nearest bin. Arrays are [eta bin][pT bin].
+struct ResponseMap {
+  std::vector<double> eta_edges, pt_edges;
+  std::vector<std::vector<double>> scale, resolution, efficiency; // efficiency may be empty
+
+  size_t etaBin(double abs_eta) const;
+  size_t ptBin(double pt) const;
+};
+
 // Parameter indices describing one object type's response.
 struct ResponseDef {
   int efficiency = -1, eff_pt50 = -1, eff_width = -1;
   int pt_min = -1, eta_max = -1;
   int stochastic = -1, constant = -1, noise = -1, pt_term = -1;
   int scale = -1, sigma_eta = -1, sigma_phi = -1;
+  int resolution_scale = -1; // multiplies the map's resolution (domain randomisation around a measurement)
   std::vector<std::pair<std::string, int>> misid; // reconstructed-as type -> probability
+  std::shared_ptr<const ResponseMap> map;         // optional binned response
 };
 
 struct FakeDef {
@@ -70,10 +83,15 @@ struct Response {
   double pt_min = 0, eta_max = 1e300;
   double stochastic = 0, constant = 0, noise = 0, pt_term = 0;
   double scale = 1, sigma_eta = 0, sigma_phi = 0;
+  double resolution_scale = 1;
   std::vector<std::pair<std::string, double>> misid;
+  std::shared_ptr<const ResponseMap> map;
 
   double efficiencyAt(double pt) const;
   double relativeResolution(double e, double pt) const;
+  // With a map: efficiency = plateau x map efficiency (when given), mean = map scale,
+  // resolution = resolution_scale x map resolution; otherwise the parametric formulas.
+  void lookup(double e, double pt, double eta, double &eff, double &mean, double &sigma) const;
 };
 
 struct CorrelationGroup {

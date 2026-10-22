@@ -1,5 +1,6 @@
 #include "kg/Detector.h"
 
+#include <algorithm>
 #include <cmath>
 #include <set>
 #include <sstream>
@@ -12,6 +13,40 @@ namespace kg {
 namespace {
 
 const double kInf = std::numeric_limits<double>::infinity();
+
+std::shared_ptr<const ResponseMap> parseResponseMap(const YAML::Node &n, const std::string &ctx) {
+  auto m = std::make_shared<ResponseMap>();
+  for (const auto &kv : n)
+    if (!std::set<std::string>{"eta_edges", "pt_edges", "scale", "resolution", "efficiency"}.count(kv.first.as<std::string>()))
+      throw std::invalid_argument(ctx + ": unknown key '" + kv.first.as<std::string>() + "'");
+  if (!n["eta_edges"] || !n["pt_edges"] || !n["scale"] || !n["resolution"])
+    throw std::invalid_argument(ctx + ": needs eta_edges, pt_edges, scale and resolution");
+  m->eta_edges = n["eta_edges"].as<std::vector<double>>();
+  m->pt_edges = n["pt_edges"].as<std::vector<double>>();
+  auto increasing = [&](const std::vector<double> &e, const char *what) {
+    if (e.size() < 2) throw std::invalid_argument(ctx + ": " + what + " needs at least two edges");
+    for (size_t i = 1; i < e.size(); ++i)
+      if (!(e[i] > e[i - 1])) throw std::invalid_argument(ctx + ": " + what + " must increase");
+  };
+  increasing(m->eta_edges, "eta_edges");
+  increasing(m->pt_edges, "pt_edges");
+  const size_t ne = m->eta_edges.size() - 1, np = m->pt_edges.size() - 1;
+  auto table = [&](const char *key, double lo, double hi, bool hiInclusive) {
+    auto t = n[key].as<std::vector<std::vector<double>>>();
+    if (t.size() != ne) throw std::invalid_argument(ctx + ": " + key + " needs " + std::to_string(ne) + " eta rows");
+    for (const auto &row : t) {
+      if (row.size() != np) throw std::invalid_argument(ctx + ": " + key + " needs " + std::to_string(np) + " pT columns");
+      for (double v : row)
+        if (!(v >= lo) || (hiInclusive ? !(v <= hi) : !(v < hi)))
+          throw std::invalid_argument(ctx + ": " + key + " value " + std::to_string(v) + " out of range");
+    }
+    return t;
+  };
+  m->scale = table("scale", 1e-6, kInf, false);
+  m->resolution = table("resolution", 0.0, kInf, false);
+  if (n["efficiency"]) m->efficiency = table("efficiency", 0.0, 1.0, true);
+  return m;
+}
 
 ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet &ps) {
   const std::string p = "detector." + type + ".";
@@ -36,6 +71,8 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
   r.scale = ps.parseOr(n["scale"], p + "scale", 1.0);
   r.sigma_eta = ps.parseOr(n["sigma_eta"], p + "sigma_eta", 0.0);
   r.sigma_phi = ps.parseOr(n["sigma_phi"], p + "sigma_phi", 0.0);
+  r.resolution_scale = ps.parseOr(n["resolution_scale"], p + "resolution_scale", 1.0);
+  if (n["response_map"]) r.map = parseResponseMap(n["response_map"], "detector." + type + ".response_map");
   if (n["misid"]) {
     if (!n["misid"].IsMap()) throw std::invalid_argument("detector." + type + ".misid must be a map type -> probability");
     for (const auto &kv : n["misid"]) {
@@ -45,7 +82,7 @@ ResponseDef parseResponse(const YAML::Node &n, const std::string &type, ParamSet
     }
   }
   static const std::set<std::string> known = {"efficiency", "eff_pt50", "eff_width", "pt_min", "eta_max", "resolution",
-                                              "scale", "sigma_eta", "sigma_phi", "misid"};
+                                              "scale", "sigma_eta", "sigma_phi", "misid", "resolution_scale", "response_map"};
   for (const auto &kv : n)
     if (!known.count(kv.first.as<std::string>()))
       throw std::invalid_argument("detector." + type + ": unknown key '" + kv.first.as<std::string>() + "'");
@@ -157,6 +194,21 @@ void emitDetectorPrior(YAML::Emitter &out, const DetectorPrior &d) {
     emitP(out, ps, "scale", r.scale);
     emitP(out, ps, "sigma_eta", r.sigma_eta);
     emitP(out, ps, "sigma_phi", r.sigma_phi);
+    emitP(out, ps, "resolution_scale", r.resolution_scale);
+    if (r.map) {
+      out << YAML::Key << "response_map" << YAML::Value << YAML::BeginMap;
+      out << YAML::Key << "eta_edges" << YAML::Value << YAML::Flow << r.map->eta_edges;
+      out << YAML::Key << "pt_edges" << YAML::Value << YAML::Flow << r.map->pt_edges;
+      auto tab = [&](const char *k, const std::vector<std::vector<double>> &t) {
+        out << YAML::Key << k << YAML::Value << YAML::BeginSeq;
+        for (const auto &row : t) out << YAML::Flow << row;
+        out << YAML::EndSeq;
+      };
+      tab("scale", r.map->scale);
+      tab("resolution", r.map->resolution);
+      if (!r.map->efficiency.empty()) tab("efficiency", r.map->efficiency);
+      out << YAML::EndMap;
+    }
     if (!r.misid.empty()) {
       out << YAML::Key << "misid" << YAML::Value << YAML::BeginMap;
       for (const auto &m : r.misid) emitP(out, ps, m.first.c_str(), m.second);
@@ -204,6 +256,29 @@ double Response::efficiencyAt(double pt) const {
   return efficiency * 0.5 * (1.0 + std::erf((pt - eff_pt50) / (std::sqrt(2.0) * eff_width)));
 }
 
+size_t ResponseMap::etaBin(double a) const {
+  const size_t i = std::upper_bound(eta_edges.begin(), eta_edges.end(), a) - eta_edges.begin();
+  return std::min(std::max<size_t>(i, 1), eta_edges.size() - 1) - 1;
+}
+
+size_t ResponseMap::ptBin(double pt) const {
+  const size_t i = std::upper_bound(pt_edges.begin(), pt_edges.end(), pt) - pt_edges.begin();
+  return std::min(std::max<size_t>(i, 1), pt_edges.size() - 1) - 1;
+}
+
+void Response::lookup(double e, double pt, double eta, double &eff, double &mean, double &sigma) const {
+  if (!map) {
+    eff = efficiencyAt(pt);
+    mean = 1.0;
+    sigma = relativeResolution(e, pt);
+    return;
+  }
+  const size_t ie = map->etaBin(std::fabs(eta)), ip = map->ptBin(pt);
+  eff = map->efficiency.empty() ? efficiencyAt(pt) : efficiency * map->efficiency.at(ie).at(ip);
+  mean = map->scale.at(ie).at(ip);
+  sigma = resolution_scale * map->resolution.at(ie).at(ip);
+}
+
 double Response::relativeResolution(double e, double pt) const {
   double s2 = constant * constant + pt_term * pt_term * pt * pt;
   if (e > 0) s2 += stochastic * stochastic / e + noise * noise / (e * e);
@@ -227,6 +302,9 @@ DetectorState buildDetectorState(const DetectorPrior &d, const std::vector<doubl
     o.scale = v[r.scale];
     o.sigma_eta = v[r.sigma_eta];
     o.sigma_phi = v[r.sigma_phi];
+    o.resolution_scale = v[r.resolution_scale];
+    o.map = r.map;
+    check(o.resolution_scale >= 0, c, "resolution_scale must be >= 0");
     check(o.efficiency >= 0 && o.efficiency <= 1, c, "efficiency must be in [0, 1], got " + std::to_string(o.efficiency));
     check(o.eff_width >= 0, c, "efficiency width must be >= 0");
     check(o.eta_max > 0, c, "eta_max must be > 0");

@@ -237,6 +237,30 @@ mean a perfect detector):
 | `scale` | response scale (four-vector multiplied by scale·(1 + σ·N(0,1))) |
 | `sigma_eta`, `sigma_phi` | Gaussian angular smearing |
 | `misid: {type: p}` | probability to be reconstructed as another type (Σ ≤ 1) |
+| `response_map: {eta_edges, pt_edges, scale, resolution, efficiency}` | binned response (below) |
+| `resolution_scale` | multiplies the map resolution (default 1; a parameter, so it can be randomised) |
+
+A binned response map replaces the parametric formulas with tables in (|η|, pT) of the true object,
+for example measured from a full detector simulation:
+
+```yaml
+jet:
+  efficiency: {dist: uniform, min: 0.97, max: 1.0}     # plateau factor applied on top of the map
+  resolution_scale: {dist: uniform, min: 0.85, max: 1.15}
+  response_map:
+    eta_edges: [0, 1.3, 2.5, 4.0]                      # |eta| bin edges
+    pt_edges: [15, 30, 60, 120, 1.0e5]                 # true-pT bin edges
+    scale: [[0.97, 0.98, 0.99, 0.99], ...]             # median reco/true pT, [eta][pT]
+    resolution: [[0.20, 0.14, 0.10, 0.08], ...]        # relative resolution sigma/pT
+    efficiency: [[0.80, 0.97, 0.99, 1.00], ...]        # optional; else the parametric turn-on is used
+```
+
+With a map, an object in bin (i, j) is kept with probability `efficiency` × map efficiency[i][j]
+(the parametric `pt50`/`width` turn-on when the map has no efficiency table) and its four-vector is
+multiplied by `scale` · map scale[i][j] · (1 + `resolution_scale` · map resolution[i][j] · g), where g
+includes the correlated-group fluctuation as for the parametric response. Values outside the edges
+use the nearest bin. Map entries are fixed numbers (randomise through `resolution_scale`, `scale` and
+the efficiency plateau); tasks serialise the full map.
 
 Composite objects (`reconstruct_as` on a decay mode) model objects that a detector reconstructs from
 several particles, most importantly hadronic taus:
